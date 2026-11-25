@@ -199,8 +199,9 @@ for (const r of results) {
 let registeredPlayers = []; // { id, name, mssv, joinedAt }
 let session = {
   sessionId: 'ses_' + Date.now(),
-  status: 'WAITING', // WAITING | LIVE
+  status: 'WAITING', // WAITING | LIVE | FINISHED
   startedAt: null,
+  finishedAt: null,
   customBaseUrl: ''
 };
 
@@ -294,6 +295,18 @@ function sortLiveScores(list) {
   });
 }
 
+function checkAutoFinalize() {
+  if (session.status !== 'LIVE' || registeredPlayers.length === 0) return false;
+  const submittedSet = new Set(results.map(r => r.mssv));
+  const allDone = registeredPlayers.every(p => submittedSet.has(p.mssv));
+  if (allDone) {
+    session.status = 'FINISHED';
+    session.finishedAt = Date.now();
+    return true;
+  }
+  return false;
+}
+
 // ==================== ROUTES ====================
 app.get('/', (req, res) => {
   res.redirect('/host');
@@ -313,10 +326,14 @@ app.get('/healthz', (req, res) => {
 
 // Lấy thông tin phiên + QR Code DataURL
 app.get('/api/session', async (req, res) => {
+  checkAutoFinalize();
+
   if (req.query.lite === '1') {
     return res.json({
       sessionId: session.sessionId,
       status: session.status,
+      finalized: session.status === 'FINISHED',
+      completedCount: results.length,
       registeredCount: registeredPlayers.length
     });
   }
@@ -336,7 +353,9 @@ app.get('/api/session', async (req, res) => {
     res.json({
       sessionId: session.sessionId,
       status: session.status,
+      finalized: session.status === 'FINISHED',
       startedAt: session.startedAt,
+      finishedAt: session.finishedAt,
       playUrl,
       customBaseUrl: session.customBaseUrl,
       lanUrl: `http://${getLocalIPv4()}:${PORT}/play`,
@@ -358,6 +377,7 @@ app.post('/api/session/url', (req, res) => {
 
 function handleStartChallenge(req, res) {
   session.status = 'LIVE';
+  session.finishedAt = null;
   if (!session.startedAt) {
     session.startedAt = Date.now();
   }
@@ -372,16 +392,58 @@ app.post('/api/session/start-now', handleStartChallenge);
 app.post('/api/session/open-lobby', (req, res) => {
   session.status = 'WAITING';
   session.startedAt = null;
+  session.finishedAt = null;
   res.json({ ok: true, status: session.status });
 });
 
-// Lấy danh sách câu hỏi cho sinh viên (ẩn đáp án đúng trong API này nếu muốn, hoặc gửi kèm giải thích)
+// Host chốt kết quả thủ công (dự phòng khi có sinh viên rớt mạng giữa chừng)
+app.post('/api/session/finalize', (req, res) => {
+  const submittedSet = new Set(results.map(r => r.mssv));
+  let promoted = false;
+  for (const live of liveScores.values()) {
+    if (!submittedSet.has(live.mssv) && live.answeredCount > 0) {
+      const record = {
+        id: 'res_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        name: live.name,
+        mssv: live.mssv,
+        score: Number(live.score) || 0,
+        correctCount: Number(live.correctCount) || 0,
+        totalQuestions: Number(live.totalQuestions) || QUIZ_QUESTIONS.length,
+        totalTime: Number(Number(live.totalTime || 0).toFixed(2)),
+        finishedAt: new Date().toISOString()
+      };
+      results.push(record);
+      submittedSet.add(live.mssv);
+      live.finished = true;
+      live.updatedAt = record.finishedAt;
+      promoted = true;
+    }
+  }
+  session.status = 'FINISHED';
+  session.finishedAt = Date.now();
+  if (promoted) {
+    saveResults(results);
+  }
+  res.json({
+    ok: true,
+    finalized: true,
+    status: session.status,
+    completedCount: results.length,
+    registeredCount: registeredPlayers.length
+  });
+});
+
+// Lấy danh sách câu hỏi cho sinh viên
 app.get('/api/questions', (req, res) => {
   res.json(QUIZ_QUESTIONS);
 });
 
 // Sinh viên đăng ký sau khi quét QR
 app.post('/api/register', (req, res) => {
+  if (session.status === 'FINISHED') {
+    return res.status(400).json({ error: 'Phiên thi này đã kết thúc. Vui lòng chờ Ban Tổ Chức mở phiên mới!' });
+  }
+
   const name = String(req.body.name || '').trim();
   const mssv = String(req.body.mssv || '').trim().toUpperCase();
   if (!name || !mssv) {
@@ -498,26 +560,58 @@ app.post('/api/submit', (req, res) => {
   });
 
   saveResults(results);
+  checkAutoFinalize();
+
+  const finalized = session.status === 'FINISHED';
   const sorted = sortLeaderboard(results);
-  const rank = sorted.findIndex(r => r.mssv === cleanMssv) + 1;
+  const rank = finalized ? sorted.findIndex(r => r.mssv === cleanMssv) + 1 : null;
+  const totalPlayers = finalized ? sorted.length : Math.max(registeredPlayers.length, results.length);
 
   res.json({
     ok: true,
+    finalized,
     rank,
-    totalPlayers: sorted.length,
-    record
+    completedCount: results.length,
+    registeredCount: registeredPlayers.length,
+    totalPlayers,
+    record: saved
   });
 });
 
-// Lấy bảng Live Score Top 10 người chơi điểm cao nhất
+// Thí sinh đã nộp bài hỏi lại thứ hạng chính thức khi người cuối hoàn thành
+app.get('/api/my-rank', (req, res) => {
+  checkAutoFinalize();
+  const cleanMssv = String(req.query.mssv || '').trim().toUpperCase();
+  const finalized = session.status === 'FINISHED';
+  const sorted = sortLeaderboard(results);
+  const rank = finalized && cleanMssv ? sorted.findIndex(r => r.mssv === cleanMssv) + 1 : null;
+  res.json({
+    finalized,
+    status: session.status,
+    rank: rank && rank > 0 ? rank : null,
+    totalPlayers: finalized ? sorted.length : Math.max(registeredPlayers.length, results.length),
+    completedCount: results.length,
+    registeredCount: registeredPlayers.length
+  });
+});
+
+// Lấy bảng Live Score tạm thời Top 10 người chơi điểm cao nhất
 app.get('/api/live-scores', (req, res) => {
   const top10 = sortLiveScores(Array.from(liveScores.values())).slice(0, 10);
   res.json(top10);
 });
 
-// Lấy bảng xếp hạng
+// Lấy bảng xếp hạng chính thức (chỉ trả dữ liệu sau khi người chơi cuối cùng xong hoặc Host chốt)
 app.get('/api/leaderboard', (req, res) => {
-  res.json(sortLeaderboard(results));
+  checkAutoFinalize();
+  const finalized = session.status === 'FINISHED';
+  res.json({
+    finalized,
+    status: session.status,
+    completedCount: results.length,
+    registeredCount: registeredPlayers.length,
+    leaderboard: finalized ? sortLeaderboard(results) : []
+  });
 });
 
 // Xuất CSV Excel
@@ -548,6 +642,7 @@ app.post('/api/reset', (req, res) => {
   session.sessionId = 'ses_' + Date.now();
   session.status = 'WAITING';
   session.startedAt = null;
+  session.finishedAt = null;
   saveResults(results);
   res.json({ ok: true });
 });

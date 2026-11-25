@@ -112,8 +112,8 @@
         <h2 id="res-name" class="text-2xl font-black"></h2>
         <p id="res-mssv" class="text-xs text-blue-200 mt-0.5"></p>
       </div>
-      <div class="inline-block px-4 py-2 rounded-xl bg-[#EF8823] text-white font-black text-lg" id="res-rank">
-        Đang xếp hạng...
+      <div class="inline-block px-4 py-2 rounded-xl bg-white/15 border border-white/25 text-blue-100 font-bold text-sm" id="res-rank">
+        Đang chờ tổng hợp kết quả...
       </div>
       <div class="grid grid-cols-3 gap-2.5">
         <div class="bg-white/10 rounded-xl p-3">
@@ -129,7 +129,7 @@
           <div id="res-time" class="text-xl font-black text-[#EF8823] mt-0.5">0.0s</div>
         </div>
       </div>
-      <p class="text-xs text-blue-100">Kết quả của bạn đã được lưu trực tiếp lên Bảng Xếp Hạng chương trình DAT Group tại Khoa Kỹ thuật Điện tử 2, PTIT HCM!</p>
+      <p id="res-note" class="text-xs text-blue-100">Bảng xếp hạng chính thức chỉ được chốt sau khi người chơi cuối cùng hoàn thành.</p>
     </section>
 
   </main>
@@ -151,6 +151,7 @@
     let isTransitioning = false;
     let hasSubmitted = false;
     let waitPoll = null;
+    let rankPoll = null;
 
     function escapeHtml(s) {
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -237,6 +238,10 @@
     }
 
     function startQuiz() {
+      if (rankPoll) {
+        clearInterval(rankPoll);
+        rankPoll = null;
+      }
       qIdx = 0;
       score = 0;
       correctCount = 0;
@@ -401,6 +406,34 @@
       goNextOrSubmit();
     });
 
+    function showFinalRank(rank, totalPlayers) {
+      const rankEl = document.getElementById('res-rank');
+      rankEl.className = 'inline-block px-4 py-2 rounded-xl bg-[#EF8823] text-white font-black text-lg';
+      rankEl.textContent = rank
+        ? `Hạng chính thức #${rank} / ${totalPlayers} sinh viên`
+        : 'Đã hoàn thành!';
+      document.getElementById('res-note').textContent =
+        'Tất cả thí sinh đã hoàn thành! Đây là thứ hạng chính thức của bạn tại chương trình DAT Group — Khoa Kỹ thuật Điện tử 2, PTIT HCM.';
+    }
+
+    function startRankPolling() {
+      if (rankPoll) clearInterval(rankPoll);
+      rankPoll = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/my-rank?mssv=${encodeURIComponent(player.mssv)}`);
+          const d = await res.json();
+          if (d.finalized) {
+            clearInterval(rankPoll);
+            rankPoll = null;
+            showFinalRank(d.rank, d.totalPlayers);
+          } else {
+            document.getElementById('res-rank').textContent =
+              `Đang chờ thí sinh cuối cùng hoàn thành (${d.completedCount}/${d.registeredCount})...`;
+          }
+        } catch (e) {}
+      }, 1500);
+    }
+
     async function submitQuiz() {
       if (hasSubmitted) return;
       hasSubmitted = true;
@@ -414,6 +447,10 @@
       document.getElementById('res-score').textContent = score.toLocaleString('vi-VN');
       document.getElementById('res-correct').textContent = `${correctCount}/${questions.length}`;
       document.getElementById('res-time').textContent = `${totalTime.toFixed(1)}s`;
+
+      const rankEl = document.getElementById('res-rank');
+      rankEl.className = 'inline-block px-4 py-2 rounded-xl bg-white/15 border border-white/25 text-blue-100 font-bold text-sm';
+      rankEl.textContent = 'Đang gửi bài thi...';
 
       try {
         const res = await fetch('/api/submit', {
@@ -429,9 +466,16 @@
           })
         });
         const data = await res.json();
-        document.getElementById('res-rank').textContent = `Hạng #${data.rank} / ${data.totalPlayers} sinh viên`;
+        if (data.finalized) {
+          showFinalRank(data.rank, data.totalPlayers);
+        } else {
+          rankEl.textContent = `Đang chờ thí sinh cuối cùng hoàn thành (${data.completedCount}/${data.registeredCount})...`;
+          document.getElementById('res-note').textContent =
+            'Bảng xếp hạng chính thức chỉ được chốt sau khi người chơi cuối cùng hoàn thành. Vui lòng giữ nguyên màn hình để xem thứ hạng cuối cùng!';
+          startRankPolling();
+        }
       } catch (e) {
-        document.getElementById('res-rank').textContent = 'Đã hoàn thành!';
+        rankEl.textContent = 'Đã hoàn thành!';
       }
     }
   </script>

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HOST — DAT Group Smart Factory Quiz (SECC 25/11/2026)</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0E2841; color: #FFFFFF; }
+    .card-glass { background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.16); }
+    .pulse-ring { animation: pulseRing 1.5s infinite; }
+    @keyframes pulseRing {
+      0% { box-shadow: 0 0 0 0 rgba(239, 136, 35, 0.55); }
+      70% { box-shadow: 0 0 0 18px rgba(239, 136, 35, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 136, 35, 0); }
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="border-b border-white/15 bg-[#091C2E]/90 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-xl bg-[#1C79C0] font-black flex items-center justify-center text-sm shadow">
+        DAT<span class="text-[#EF8823]">20</span>
+      </div>
+      <div>
+        <h1 class="text-lg sm:text-xl font-black tracking-tight">MÀN HÌNH ĐIỀU KHIỂN — SMART FACTORY QUIZ</h1>
+        <p class="text-xs text-blue-200">Hội thảo Tự động hóa Thông minh • SECC 25/11/2026</p>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2">
+      <button id="btn-start-qr" class="px-4 py-2 rounded-xl bg-[#EF8823] hover:bg-orange-600 font-extrabold text-sm shadow cursor-pointer">
+        Mở QR đếm ngược 30s
+      </button>
+      <button id="btn-extend-qr" class="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 font-bold text-xs border border-white/20 cursor-pointer">
+        +15 giây
+      </button>
+      <button id="btn-start-now" class="px-3.5 py-2 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-bold text-xs cursor-pointer">
+        Bắt đầu Quiz ngay
+      </button>
+      <a href="/api/export-csv" class="px-3.5 py-2 rounded-xl bg-[#1C79C0] hover:bg-blue-600 font-bold text-xs">
+        Xuất CSV (Excel)
+      </a>
+      <button id="btn-reset" class="px-3.5 py-2 rounded-xl bg-red-600/80 hover:bg-red-600 font-bold text-xs cursor-pointer">
+        Reset phiên
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Grid -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- Left: QR Code + 30s Countdown -->
+    <section class="lg:col-span-5 card-glass rounded-2xl p-6 flex flex-col items-center text-center justify-between gap-5">
+      <div class="w-full space-y-1">
+        <div id="status-badge" class="inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-white/15 text-blue-200">
+          CHỜ MỞ PHIÊN QUÉT QR
+        </div>
+        <h2 class="text-2xl font-black mt-2">QUÉT MÃ QR ĐỂ THAM GIA</h2>
+        <p class="text-xs text-blue-200">Sinh viên quét mã, nhập <strong>Họ tên &amp; MSSV</strong> để vào phòng thi</p>
+      </div>
+
+      <!-- Countdown Circle / Banner -->
+      <div class="w-full bg-[#091C2E] rounded-2xl p-4 border border-white/15 flex items-center justify-around">
+        <div>
+          <div class="text-[11px] uppercase tracking-wider text-blue-300 font-bold">Thời gian quét QR</div>
+          <div id="qr-countdown" class="text-4xl font-mono font-black text-[#EF8823] mt-0.5">30.0s</div>
+        </div>
+        <div class="h-10 w-px bg-white/15"></div>
+        <div>
+          <div class="text-[11px] uppercase tracking-wider text-blue-300 font-bold">Đã vào phòng</div>
+          <div id="registered-count" class="text-4xl font-black text-emerald-400 mt-0.5">0</div>
+        </div>
+      </div>
+
+      <!-- QR Image Box -->
+      <div id="qr-wrapper" class="bg-white p-4 rounded-2xl shadow-2xl">
+        <img id="qr-img" src="" alt="QR Tham gia Quiz" class="w-64 h-64 sm:w-72 sm:h-72 object-contain" />
+      </div>
+
+      <!-- Public / Tunnel URL Config -->
+      <div class="w-full space-y-2 text-left">
+        <div class="text-[11px] text-blue-200">
+          Link hiện tại trong QR: <a id="play-url-link" href="/play" target="_blank" class="underline font-bold text-[#EF8823] break-all"></a>
+        </div>
+        <div class="flex gap-2">
+          <input id="input-custom-url" type="text" placeholder="Tự động theo domain hiện tại, hoặc dán link khác (https://...)"
+            class="flex-1 px-3 py-2 rounded-xl bg-[#091C2E] border border-white/20 text-xs text-white placeholder-blue-300/60 focus:outline-none focus:border-[#EF8823]" />
+          <button id="btn-save-url" class="px-3 py-2 rounded-xl bg-[#1C79C0] hover:bg-blue-600 text-xs font-bold shrink-0 cursor-pointer">
+            Đổi link QR
+          </button>
+        </div>
+      </div>
+
+      <!-- Recent Joined Pills -->
+      <div class="w-full text-left">
+        <div class="text-xs font-bold text-blue-200 mb-2">Sinh viên vừa quét mã:</div>
+        <div id="joined-pills" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+          <span class="text-xs text-blue-300/60 italic">Chưa có sinh viên nào đăng ký...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right: Live Leaderboard -->
+    <section class="lg:col-span-7 card-glass rounded-2xl p-6 flex flex-col gap-5">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-2xl font-black text-white">BẢNG XẾP HẠNG TRỰC TUYẾN</h2>
+          <p class="text-xs text-blue-200">Tự động cập nhật mỗi 2 giây • Xếp hạng theo Điểm số → Số câu đúng → Tốc độ nhanh nhất</p>
+        </div>
+        <div class="px-3 py-1.5 rounded-xl bg-white/10 text-xs font-bold text-emerald-300">
+          Đã nộp bài: <span id="completed-count">0</span>
+        </div>
+      </div>
+
+      <!-- Top 3 Podium -->
+      <div id="podium" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
+
+      <!-- Table -->
+      <div class="flex-1 bg-[#091C2E]/80 rounded-xl border border-white/15 overflow-hidden">
+        <div class="overflow-x-auto max-h-[430px] overflow-y-auto">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead class="bg-white/10 text-[11px] uppercase text-blue-200 sticky top-0">
+              <tr>
+                <th class="py-3 px-4 text-center w-16">Hạng</th>
+                <th class="py-3 px-4">Họ và tên</th>
+                <th class="py-3 px-4">MSSV</th>
+                <th class="py-3 px-4 text-center">Đúng</th>
+                <th class="py-3 px-4 text-center">Thời gian</th>
+                <th class="py-3 px-4 text-right">Điểm</th>
+              </tr>
+            </thead>
+            <tbody id="lb-body" class="divide-y divide-white/10"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let urlInitialized = false;
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    async function fetchSession() {
+      try {
+        const res = await fetch('/api/session');
+        const data = await res.json();
+
+        const qrImg = document.getElementById('qr-img');
+        if (qrImg.dataset.playUrl !== data.playUrl) {
+          qrImg.src = data.qrDataUrl;
+          qrImg.dataset.playUrl = data.playUrl;
+        }
+        const linkEl = document.getElementById('play-url-link');
+        linkEl.textContent = data.playUrl;
+        linkEl.href = data.playUrl;
+
+        if (!urlInitialized && data.customBaseUrl) {
+          document.getElementById('input-custom-url').value = data.customBaseUrl;
+          urlInitialized = true;
+        }
+
+        document.getElementById('registered-count').textContent = data.registeredCount;
+        document.getElementById('completed-count').textContent = data.completedCount;
+
+        const badge = document.getElementById('status-badge');
+        const countdownEl = document.getElementById('qr-countdown');
+        const qrWrap = document.getElementById('qr-wrapper');
+
+        if (data.status === 'QR_OPEN') {
+          badge.textContent = 'ĐANG MỞ QUÉT QR (ĐẾM NGƯỢC 30S)';
+          badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-[#EF8823] text-white';
+          countdownEl.textContent = `${data.remainingSec.toFixed(1)}s`;
+          qrWrap.classList.add('pulse-ring');
+        } else if (data.status === 'LIVE') {
+          badge.textContent = 'ĐANG DIỄN RA QUIZ — SINH VIÊN ĐANG TRẢ LỜI';
+          badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-[#00B050] text-white';
+          countdownEl.textContent = '0.0s';
+          qrWrap.classList.remove('pulse-ring');
+        } else {
+          badge.textContent = 'CHỜ MỞ PHIÊN QUÉT QR';
+          badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-white/15 text-blue-200';
+          countdownEl.textContent = '30.0s';
+          qrWrap.classList.remove('pulse-ring');
+        }
+
+        const pills = document.getElementById('joined-pills');
+        if (data.registeredPlayers.length === 0) {
+          pills.innerHTML = '<span class="text-xs text-blue-300/60 italic">Chưa có sinh viên nào đăng ký...</span>';
+        } else {
+          pills.innerHTML = data.registeredPlayers.map(p =>
+            `<span class="px-2.5 py-1 rounded-lg bg-[#1C79C0]/60 border border-white/15 text-xs font-semibold">${escapeHtml(p.name)} (${escapeHtml(p.mssv)})</span>`
+          ).join('');
+        }
+      } catch (e) {}
+    }
+
+    async function fetchLeaderboard() {
+      try {
+        const res = await fetch('/api/leaderboard');
+        const list = await res.json();
+
+        const podium = document.getElementById('podium');
+        const top3 = list.slice(0, 3);
+        const styles = [
+          { title: 'HẠNG 1', bg: 'bg-amber-500/20 border-amber-400', text: 'text-amber-300' },
+          { title: 'HẠNG 2', bg: 'bg-slate-400/20 border-slate-300', text: 'text-slate-200' },
+          { title: 'HẠNG 3', bg: 'bg-orange-700/30 border-orange-400', text: 'text-orange-300' }
+        ];
+
+        podium.innerHTML = top3.length === 0
+          ? '<div class="sm:col-span-3 text-center py-6 text-xs text-blue-200/70 bg-white/5 rounded-xl border border-dashed border-white/15">Chưa có sinh viên hoàn thành bài thi.</div>'
+          : top3.map((r, i) => `
+              <div class="rounded-xl p-4 border ${styles[i].bg} flex flex-col justify-between gap-1.5">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-black ${styles[i].text}">${styles[i].title}</span>
+                  <span class="text-xs font-mono text-blue-200">${r.totalTime.toFixed(1)}s</span>
+                </div>
+                <div class="font-black text-base truncate">${escapeHtml(r.name)}</div>
+                <div class="text-xs text-blue-200">${escapeHtml(r.mssv)} • Đúng ${r.correctCount}/${r.totalQuestions}</div>
+                <div class="text-2xl font-black text-white pt-1">${r.score.toLocaleString('vi-VN')} đ</div>
+              </div>
+            `).join('');
+
+        const tbody = document.getElementById('lb-body');
+        if (list.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="py-8 text-center text-blue-200/60 text-xs">Đang chờ kết quả từ sinh viên...</td></tr>';
+        } else {
+          tbody.innerHTML = list.map((r, i) => `
+            <tr class="hover:bg-white/5">
+              <td class="py-3 px-4 text-center font-black ${i < 3 ? 'text-[#EF8823]' : 'text-blue-200'}">#${i + 1}</td>
+              <td class="py-3 px-4 font-bold">${escapeHtml(r.name)}</td>
+              <td class="py-3 px-4 text-xs text-blue-200 font-mono">${escapeHtml(r.mssv)}</td>
+              <td class="py-3 px-4 text-center font-bold text-emerald-300">${r.correctCount}/${r.totalQuestions}</td>
+              <td class="py-3 px-4 text-center font-mono text-xs text-blue-200">${r.totalTime.toFixed(1)}s</td>
+              <td class="py-3 px-4 text-right font-black text-white">${r.score.toLocaleString('vi-VN')}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (e) {}
+    }
+
+    document.getElementById('btn-start-qr').addEventListener('click', async () => {
+      await fetch('/api/session/start-qr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ durationSec: 30 })
+      });
+      fetchSession();
+    });
+
+    document.getElementById('btn-extend-qr').addEventListener('click', async () => {
+      await fetch('/api/session/extend-qr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addSec: 15 })
+      });
+      fetchSession();
+    });
+
+    document.getElementById('btn-start-now').addEventListener('click', async () => {
+      await fetch('/api/session/start-now', { method: 'POST' });
+      fetchSession();
+    });
+
+    document.getElementById('btn-save-url').addEventListener('click', async () => {
+      const customBaseUrl = document.getElementById('input-custom-url').value.trim();
+      await fetch('/api/session/url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customBaseUrl })
+      });
+      fetchSession();
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', async () => {
+      if (!confirm('Xóa toàn bộ danh sách sinh viên và bảng xếp hạng của phiên này?')) return;
+      await fetch('/api/reset', { method: 'POST' });
+      fetchSession();
+      fetchLeaderboard();
+    });
+
+    fetchSession();
+    fetchLeaderboard();
+    setInterval(fetchSession, 500);
+    setInterval(fetchLeaderboard, 2000);
+  </script>
+</body>
+</html>

@@ -298,6 +298,15 @@ app.get('/api/session', async (req, res) => {
   const playUrl = getPlayUrl(req);
   try {
     const qrDataUrl = await getQrDataUrl(playUrl);
+    const submittedSet = new Set(results.map(r => r.mssv));
+    const lobbyPlayers = registeredPlayers
+      .map((p, idx) => ({
+        ...p,
+        order: idx + 1,
+        hasSubmitted: submittedSet.has(p.mssv)
+      }))
+      .slice(-500)
+      .reverse();
     res.json({
       sessionId: session.sessionId,
       status: session.status,
@@ -307,7 +316,7 @@ app.get('/api/session', async (req, res) => {
       lanUrl: `http://${getLocalIPv4()}:${PORT}/play`,
       qrDataUrl,
       registeredCount: registeredPlayers.length,
-      registeredPlayers: registeredPlayers.slice(-100).reverse(),
+      registeredPlayers: lobbyPlayers,
       completedCount: results.length
     });
   } catch (err) {

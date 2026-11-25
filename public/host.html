@@ -31,8 +31,11 @@
     </div>
 
     <div class="flex flex-wrap items-center gap-2">
-      <button id="btn-start-challenge" class="px-4 py-2 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-extrabold text-sm shadow cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+      <button id="btn-start-challenge" class="px-4 py-2 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-extrabold text-sm shadow cursor-pointer">
         Bắt đầu thử thách
+      </button>
+      <button id="btn-view-leaderboard" class="px-3.5 py-2 rounded-xl bg-[#EF8823] hover:bg-orange-600 font-extrabold text-xs shadow cursor-pointer">
+        Xem bảng xếp hạng (<span id="header-lb-count">0</span>)
       </button>
       <a href="/api/export-csv" class="px-3.5 py-2 rounded-xl bg-[#1C79C0] hover:bg-blue-600 font-bold text-xs">
         Xuất CSV (Excel)
@@ -43,10 +46,10 @@
     </div>
   </header>
 
-  <!-- Main Grid -->
-  <main class="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+  <!-- VIEW 1: HOST DASHBOARD -->
+  <main id="host-dashboard" class="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-    <!-- Left: Waiting Room + QR Code -->
+    <!-- Left: Waiting Room QR & Controls -->
     <section class="lg:col-span-5 card-glass rounded-2xl p-6 flex flex-col items-center text-center justify-between gap-4">
       <div class="w-full space-y-1">
         <div id="status-badge" class="inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-[#EF8823] text-white">
@@ -70,13 +73,13 @@
       </div>
 
       <!-- Primary Start Challenge Button -->
-      <button id="btn-start-challenge-main" class="w-full py-3.5 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-black text-base tracking-wide shadow-lg cursor-pointer transition disabled:opacity-60 disabled:cursor-not-allowed">
+      <button id="btn-start-challenge-main" class="w-full py-3.5 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-black text-base tracking-wide shadow-lg cursor-pointer transition">
         BẮT ĐẦU THỬ THÁCH
       </button>
 
       <!-- QR Image Box -->
       <div id="qr-wrapper" class="bg-white p-4 rounded-2xl shadow-2xl pulse-ring">
-        <img id="qr-img" src="" alt="QR Tham gia Quiz" class="w-56 h-56 sm:w-64 sm:h-64 object-contain" />
+        <img id="qr-img" src="" alt="QR Tham gia Quiz" class="w-60 h-60 sm:w-64 sm:h-64 object-contain" />
       </div>
 
       <!-- Public / Tunnel URL Config -->
@@ -92,58 +95,190 @@
           </button>
         </div>
       </div>
-
-      <!-- Recent Joined Pills -->
-      <div class="w-full text-left">
-        <div class="text-xs font-bold text-blue-200 mb-2">Sinh viên đang trong phòng chờ:</div>
-        <div id="joined-pills" class="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
-          <span class="text-xs text-blue-300/60 italic">Chưa có sinh viên nào vào phòng chờ...</span>
-        </div>
-      </div>
     </section>
 
-    <!-- Right: Live Leaderboard -->
-    <section class="lg:col-span-7 card-glass rounded-2xl p-6 flex flex-col gap-5">
-      <div class="flex items-center justify-between">
-        <div>
-          <h2 class="text-2xl font-black text-white">BẢNG XẾP HẠNG TRỰC TUYẾN</h2>
-          <p class="text-xs text-blue-200">Tự động cập nhật mỗi 2 giây • Xếp hạng theo Điểm số → Số câu đúng → Tốc độ nhanh nhất</p>
+    <!-- Right: Tabbed Waiting Room List (default) & Leaderboard -->
+    <section class="lg:col-span-7 card-glass rounded-2xl p-6 flex flex-col gap-4">
+
+      <!-- Tab Bar -->
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/15 pb-3">
+        <div class="flex items-center gap-2">
+          <button id="tab-lobby" class="px-4 py-2 rounded-xl text-xs font-extrabold bg-[#1C79C0] text-white cursor-pointer transition">
+            Danh sách phòng chờ (<span id="tab-lobby-count">0</span>)
+          </button>
+          <button id="tab-leaderboard" class="px-4 py-2 rounded-xl text-xs font-extrabold bg-white/10 text-blue-200 hover:bg-white/20 cursor-pointer transition">
+            Bảng xếp hạng (<span id="tab-lb-count">0</span>)
+          </button>
         </div>
         <div class="px-3 py-1.5 rounded-xl bg-white/10 text-xs font-bold text-emerald-300">
           Đã nộp bài: <span id="completed-count">0</span>
         </div>
       </div>
 
-      <!-- Top 3 Podium -->
-      <div id="podium" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
+      <!-- Post-challenge prompt banner -->
+      <div id="challenge-finished-banner" class="hidden rounded-xl p-4 bg-emerald-500/20 border border-emerald-400/60 flex flex-wrap items-center justify-between gap-3">
+        <div class="text-sm font-bold text-emerald-100">
+          Phần thi đã kết thúc! Bấm để công bố kết quả cho cả hội trường.
+        </div>
+        <button id="btn-banner-leaderboard" class="px-4 py-2 rounded-xl bg-[#EF8823] hover:bg-orange-600 text-white text-xs font-black shadow cursor-pointer">
+          Xem bảng xếp hạng
+        </button>
+      </div>
 
-      <!-- Table -->
-      <div class="flex-1 bg-[#091C2E]/80 rounded-xl border border-white/15 overflow-hidden">
-        <div class="overflow-x-auto max-h-[430px] overflow-y-auto">
-          <table class="w-full text-left border-collapse text-sm">
-            <thead class="bg-white/10 text-[11px] uppercase text-blue-200 sticky top-0">
-              <tr>
-                <th class="py-3 px-4 text-center w-16">Hạng</th>
-                <th class="py-3 px-4">Họ và tên</th>
-                <th class="py-3 px-4">MSSV</th>
-                <th class="py-3 px-4 text-center">Đúng</th>
-                <th class="py-3 px-4 text-center">Thời gian</th>
-                <th class="py-3 px-4 text-right">Điểm</th>
-              </tr>
-            </thead>
-            <tbody id="lb-body" class="divide-y divide-white/10"></tbody>
-          </table>
+      <!-- PANEL 1: WAITING ROOM LIST (DEFAULT) -->
+      <div id="panel-lobby" class="flex-1 flex flex-col gap-3">
+        <div>
+          <h2 class="text-2xl font-black text-white">DANH SÁCH SINH VIÊN TRONG PHÒNG CHỜ</h2>
+          <p class="text-xs text-blue-200">Tự động cập nhật trực tuyến • Chờ đủ sinh viên rồi bấm "Bắt đầu thử thách"</p>
+        </div>
+
+        <div class="flex-1 bg-[#091C2E]/80 rounded-xl border border-white/15 overflow-hidden">
+          <div class="overflow-x-auto max-h-[520px] overflow-y-auto">
+            <table class="w-full text-left border-collapse text-sm">
+              <thead class="bg-white/10 text-[11px] uppercase text-blue-200 sticky top-0">
+                <tr>
+                  <th class="py-3 px-4 text-center w-16">STT</th>
+                  <th class="py-3 px-4">Họ và tên</th>
+                  <th class="py-3 px-4">MSSV</th>
+                  <th class="py-3 px-4 text-center">Giờ vào</th>
+                  <th class="py-3 px-4 text-right">Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody id="lobby-body" class="divide-y divide-white/10"></tbody>
+            </table>
+          </div>
         </div>
       </div>
+
+      <!-- PANEL 2: LEADERBOARD (ON CLICK) -->
+      <div id="panel-leaderboard" class="hidden flex-1 flex flex-col gap-4">
+        <div>
+          <h2 class="text-2xl font-black text-white">BẢNG XẾP HẠNG TRỰC TUYẾN</h2>
+          <p class="text-xs text-blue-200">Tự động cập nhật mỗi 2 giây • Xếp hạng theo Điểm số → Số câu đúng → Tốc độ nhanh nhất</p>
+        </div>
+
+        <!-- Top 3 Podium -->
+        <div id="podium" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
+
+        <!-- Leaderboard Table -->
+        <div class="flex-1 bg-[#091C2E]/80 rounded-xl border border-white/15 overflow-hidden">
+          <div class="overflow-x-auto max-h-[380px] overflow-y-auto">
+            <table class="w-full text-left border-collapse text-sm">
+              <thead class="bg-white/10 text-[11px] uppercase text-blue-200 sticky top-0">
+                <tr>
+                  <th class="py-3 px-4 text-center w-16">Hạng</th>
+                  <th class="py-3 px-4">Họ và tên</th>
+                  <th class="py-3 px-4">MSSV</th>
+                  <th class="py-3 px-4 text-center">Đúng</th>
+                  <th class="py-3 px-4 text-center">Thời gian</th>
+                  <th class="py-3 px-4 text-right">Điểm</th>
+                </tr>
+              </thead>
+              <tbody id="lb-body" class="divide-y divide-white/10"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </section>
   </main>
 
+  <!-- VIEW 2: HOST LIVE PLAYER-STYLE QUIZ STAGE -->
+  <main id="host-live-stage" class="hidden flex-1 max-w-2xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-4">
+
+    <!-- Top Live Status Bar -->
+    <div class="card-glass rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <span class="px-3 py-1 rounded-full bg-[#00B050] text-white text-xs font-black">MÀN HÌNH THỬ THÁCH TRỰC TIẾP</span>
+        <span class="text-xs font-bold text-blue-200">
+          Đã nộp bài: <span id="live-submitted-count" class="text-emerald-300 font-black">0</span> / <span id="live-total-count" class="text-white font-black">0</span>
+        </span>
+      </div>
+      <button id="btn-exit-live" class="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold cursor-pointer">
+        ← Quay lại màn hình Host
+      </button>
+    </div>
+
+    <!-- Player-style Question Header & Progress -->
+    <div class="bg-white text-[#0E2841] rounded-2xl p-4 shadow-md flex items-center justify-between">
+      <div>
+        <span id="host-q-counter" class="text-xs font-extrabold text-[#1C79C0]">CÂU 1 / 10</span>
+        <div id="host-q-section" class="text-[11px] text-slate-500"></div>
+      </div>
+      <div class="px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-lg text-[#EF8823]" id="host-q-timer">
+        20.0s
+      </div>
+    </div>
+
+    <div class="w-full h-2.5 bg-white/20 rounded-full overflow-hidden">
+      <div id="host-q-bar" class="h-full bg-[#EF8823] transition-all duration-100" style="width: 100%;"></div>
+    </div>
+
+    <!-- Player-style Question Card -->
+    <div class="bg-white text-[#0E2841] rounded-2xl p-6 shadow-xl space-y-4">
+      <h2 id="host-q-text" class="text-lg sm:text-xl font-extrabold text-[#0E2841] leading-snug"></h2>
+      <div id="host-q-options" class="space-y-2.5"></div>
+      <div id="host-q-feedback" class="hidden rounded-xl p-4 border text-xs sm:text-sm space-y-2">
+        <div id="host-fb-title" class="font-extrabold"></div>
+        <p id="host-fb-explain" class="text-slate-700"></p>
+        <div id="host-fb-auto-hint" class="text-[11px] font-semibold text-slate-500"></div>
+        <button id="host-btn-next" class="w-full py-2.5 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-sm cursor-pointer">
+          Câu tiếp theo →
+        </button>
+      </div>
+    </div>
+
+  </main>
+
   <script>
+    const OPTION_LABELS = ['A', 'B', 'C', 'D'];
+    const TIME_LIMIT = 20.0;
+
     let urlInitialized = false;
     let currentRegisteredCount = 0;
+    let currentSessionStatus = 'WAITING';
+    let activeRightTab = 'lobby';
+
+    // Host live quiz state
+    let hostQuestions = [];
+    let hostQIdx = 0;
+    let hostTimeLeft = TIME_LIMIT;
+    let hostAnswered = false;
+    let hostQTimer = null;
+    let hostAutoNextTimeout = null;
+    let hostIsTransitioning = false;
 
     function escapeHtml(s) {
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function formatJoinTime(iso) {
+      if (!iso) return '--:--:--';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '--:--:--';
+      return d.toLocaleTimeString('vi-VN', { hour12: false });
+    }
+
+    function switchRightPanel(tab) {
+      activeRightTab = tab;
+      const tabLobby = document.getElementById('tab-lobby');
+      const tabLb = document.getElementById('tab-leaderboard');
+      const panelLobby = document.getElementById('panel-lobby');
+      const panelLb = document.getElementById('panel-leaderboard');
+
+      if (tab === 'leaderboard') {
+        panelLobby.classList.add('hidden');
+        panelLb.classList.remove('hidden');
+        tabLb.className = 'px-4 py-2 rounded-xl text-xs font-extrabold bg-[#EF8823] text-white cursor-pointer transition';
+        tabLobby.className = 'px-4 py-2 rounded-xl text-xs font-extrabold bg-white/10 text-blue-200 hover:bg-white/20 cursor-pointer transition';
+        document.getElementById('challenge-finished-banner').classList.add('hidden');
+        fetchLeaderboard();
+      } else {
+        panelLb.classList.add('hidden');
+        panelLobby.classList.remove('hidden');
+        tabLobby.className = 'px-4 py-2 rounded-xl text-xs font-extrabold bg-[#1C79C0] text-white cursor-pointer transition';
+        tabLb.className = 'px-4 py-2 rounded-xl text-xs font-extrabold bg-white/10 text-blue-200 hover:bg-white/20 cursor-pointer transition';
+      }
     }
 
     async function fetchSession() {
@@ -165,9 +300,17 @@
           urlInitialized = true;
         }
 
+        currentSessionStatus = data.status;
         currentRegisteredCount = data.registeredCount || 0;
+        const completedCount = data.completedCount || 0;
+
         document.getElementById('registered-count').textContent = currentRegisteredCount;
-        document.getElementById('completed-count').textContent = data.completedCount;
+        document.getElementById('tab-lobby-count').textContent = currentRegisteredCount;
+        document.getElementById('completed-count').textContent = completedCount;
+        document.getElementById('header-lb-count').textContent = completedCount;
+        document.getElementById('tab-lb-count').textContent = completedCount;
+        document.getElementById('live-submitted-count').textContent = completedCount;
+        document.getElementById('live-total-count').textContent = currentRegisteredCount;
 
         const badge = document.getElementById('status-badge');
         const stateText = document.getElementById('session-state-text');
@@ -181,29 +324,43 @@
           stateText.textContent = 'Đang thi';
           stateText.className = 'text-2xl font-black text-emerald-400 mt-1';
           qrWrap.classList.remove('pulse-ring');
-          btnHeader.disabled = true;
-          btnHeader.textContent = 'Đang diễn ra thử thách';
-          btnMain.disabled = true;
-          btnMain.textContent = 'ĐANG DIỄN RA THỬ THÁCH...';
+          btnHeader.textContent = 'Mở màn hình câu hỏi';
+          btnHeader.className = 'px-4 py-2 rounded-xl bg-[#1C79C0] hover:bg-blue-600 font-extrabold text-sm shadow cursor-pointer';
+          btnMain.textContent = 'MỞ MÀN HÌNH CÂU HỎI';
+          btnMain.className = 'w-full py-3.5 rounded-xl bg-[#1C79C0] hover:bg-blue-600 font-black text-base tracking-wide shadow-lg cursor-pointer transition';
         } else {
           badge.textContent = 'PHÒNG CHỜ ĐANG MỞ — CHỜ ĐỦ SINH VIÊN';
           badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-[#EF8823] text-white';
           stateText.textContent = 'Đang chờ';
           stateText.className = 'text-2xl font-black text-[#EF8823] mt-1';
           qrWrap.classList.add('pulse-ring');
-          btnHeader.disabled = false;
           btnHeader.textContent = 'Bắt đầu thử thách';
-          btnMain.disabled = false;
+          btnHeader.className = 'px-4 py-2 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-extrabold text-sm shadow cursor-pointer';
           btnMain.textContent = 'BẮT ĐẦU THỬ THÁCH';
+          btnMain.className = 'w-full py-3.5 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-black text-base tracking-wide shadow-lg cursor-pointer transition';
         }
 
-        const pills = document.getElementById('joined-pills');
-        if (data.registeredPlayers.length === 0) {
-          pills.innerHTML = '<span class="text-xs text-blue-300/60 italic">Chưa có sinh viên nào vào phòng chờ...</span>';
+        const lobbyBody = document.getElementById('lobby-body');
+        if (!data.registeredPlayers || data.registeredPlayers.length === 0) {
+          lobbyBody.innerHTML = '<tr><td colspan="5" class="py-10 text-center text-blue-200/60 text-xs">Chưa có sinh viên nào vào phòng chờ. Hãy chiếu mã QR để sinh viên quét tham gia...</td></tr>';
         } else {
-          pills.innerHTML = data.registeredPlayers.map(p =>
-            `<span class="px-2.5 py-1 rounded-lg bg-[#1C79C0]/60 border border-white/15 text-xs font-semibold">${escapeHtml(p.name)} (${escapeHtml(p.mssv)})</span>`
-          ).join('');
+          lobbyBody.innerHTML = data.registeredPlayers.map(p => {
+            let statusHtml = '<span class="px-2.5 py-1 rounded-full bg-blue-500/20 border border-blue-400/40 text-blue-200 text-xs font-bold">Đang chờ</span>';
+            if (p.hasSubmitted) {
+              statusHtml = '<span class="px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 text-xs font-bold">Đã nộp bài</span>';
+            } else if (data.status === 'LIVE') {
+              statusHtml = '<span class="px-2.5 py-1 rounded-full bg-orange-500/20 border border-orange-400/50 text-orange-300 text-xs font-bold">Đang làm bài</span>';
+            }
+            return `
+              <tr class="hover:bg-white/5">
+                <td class="py-3 px-4 text-center font-bold text-blue-200">${p.order || '-'}</td>
+                <td class="py-3 px-4 font-bold">${escapeHtml(p.name)}</td>
+                <td class="py-3 px-4 text-xs text-blue-200 font-mono">${escapeHtml(p.mssv)}</td>
+                <td class="py-3 px-4 text-center font-mono text-xs text-blue-200">${formatJoinTime(p.joinedAt)}</td>
+                <td class="py-3 px-4 text-right">${statusHtml}</td>
+              </tr>
+            `;
+          }).join('');
         }
       } catch (e) {}
     }
@@ -253,17 +410,217 @@
       } catch (e) {}
     }
 
-    async function startChallenge() {
-      if (currentRegisteredCount === 0) {
-        const ok = confirm('Chưa có sinh viên nào vào phòng chờ. Bạn vẫn muốn bắt đầu thử thách ngay?');
-        if (!ok) return;
+    // ==================== HOST LIVE STAGE (PLAYER-STYLE VIEW) ====================
+    function clearHostQuestionTimers() {
+      if (hostQTimer) {
+        clearInterval(hostQTimer);
+        hostQTimer = null;
       }
-      await fetch('/api/session/start-challenge', { method: 'POST' });
+      if (hostAutoNextTimeout) {
+        clearTimeout(hostAutoNextTimeout);
+        hostAutoNextTimeout = null;
+      }
+    }
+
+    function hostGoNextOrFinish() {
+      if (hostIsTransitioning) return;
+      hostIsTransitioning = true;
+      clearHostQuestionTimers();
+      if (hostQIdx < hostQuestions.length - 1) {
+        hostQIdx += 1;
+        renderHostQuestion();
+      } else {
+        finishHostChallenge();
+      }
+    }
+
+    async function startHostLiveView() {
+      if (hostQuestions.length === 0) {
+        const res = await fetch('/api/questions');
+        hostQuestions = await res.json();
+      }
+      hostQIdx = 0;
+      hostIsTransitioning = false;
+      document.getElementById('challenge-finished-banner').classList.add('hidden');
+      document.getElementById('host-dashboard').classList.add('hidden');
+      document.getElementById('host-live-stage').classList.remove('hidden');
+      renderHostQuestion();
+    }
+
+    function renderHostQuestion() {
+      clearHostQuestionTimers();
+      hostIsTransitioning = false;
+      const q = hostQuestions[hostQIdx];
+      hostAnswered = false;
+      hostTimeLeft = TIME_LIMIT;
+
+      document.getElementById('host-q-counter').textContent = `CÂU ${hostQIdx + 1} / ${hostQuestions.length}`;
+      document.getElementById('host-q-section').textContent = `${q.section} (${q.slide})`;
+      document.getElementById('host-q-text').textContent = q.question;
+      document.getElementById('host-q-timer').textContent = `${TIME_LIMIT.toFixed(1)}s`;
+      document.getElementById('host-q-bar').style.width = '100%';
+      document.getElementById('host-q-feedback').classList.add('hidden');
+      document.getElementById('host-fb-auto-hint').textContent = '';
+
+      const opts = document.getElementById('host-q-options');
+      opts.innerHTML = '';
+      q.options.forEach((opt, idx) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'w-full text-left p-3.5 rounded-xl border-2 border-slate-200 bg-slate-50 hover:border-[#1C79C0] active:scale-[0.99] flex items-start gap-3 transition cursor-pointer';
+        btn.innerHTML = `
+          <span class="shrink-0 w-7 h-7 rounded-lg bg-[#1C79C0] text-white font-black text-xs flex items-center justify-center">${OPTION_LABELS[idx]}</span>
+          <span class="text-sm sm:text-base font-semibold text-[#0E2841] pt-0.5">${escapeHtml(opt)}</span>
+        `;
+        btn.addEventListener('click', () => pickHostAnswer(idx));
+        opts.appendChild(btn);
+      });
+
+      const startTs = performance.now();
+      hostQTimer = setInterval(() => {
+        const elapsed = (performance.now() - startTs) / 1000;
+        hostTimeLeft = Math.max(0, TIME_LIMIT - elapsed);
+        document.getElementById('host-q-timer').textContent = `${hostTimeLeft.toFixed(1)}s`;
+        document.getElementById('host-q-bar').style.width = `${(hostTimeLeft / TIME_LIMIT) * 100}%`;
+
+        if (hostAnswered) {
+          const isLast = hostQIdx === hostQuestions.length - 1;
+          document.getElementById('host-fb-auto-hint').textContent = isLast
+            ? `Bấm "Hoàn thành" để kết thúc ngay, hoặc tự động quay lại màn hình Host sau ${hostTimeLeft.toFixed(1)}s`
+            : `Tự động chuyển câu tiếp theo sau ${hostTimeLeft.toFixed(1)}s`;
+        }
+
+        if (hostTimeLeft <= 0) {
+          clearInterval(hostQTimer);
+          hostQTimer = null;
+          if (hostAnswered) {
+            hostGoNextOrFinish();
+          } else {
+            pickHostAnswer(-1);
+          }
+        }
+      }, 80);
+    }
+
+    function pickHostAnswer(sel) {
+      if (hostAnswered) return;
+      hostAnswered = true;
+
+      if (sel === -1 || hostTimeLeft <= 0) {
+        if (hostQTimer) {
+          clearInterval(hostQTimer);
+          hostQTimer = null;
+        }
+      }
+
+      const q = hostQuestions[hostQIdx];
+      const spent = Math.min(TIME_LIMIT, Math.max(0.1, TIME_LIMIT - hostTimeLeft));
+      const isRight = sel === q.correct;
+      const isLast = hostQIdx === hostQuestions.length - 1;
+
+      const btns = document.querySelectorAll('#host-q-options button');
+      btns.forEach((b, idx) => {
+        b.disabled = true;
+        if (idx === q.correct) {
+          b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-[#00B050] bg-emerald-50 flex items-start gap-3';
+        } else if (idx === sel) {
+          b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-red-500 bg-red-50 flex items-start gap-3';
+        } else {
+          b.classList.add('opacity-50');
+        }
+      });
+
+      const fb = document.getElementById('host-q-feedback');
+      const title = document.getElementById('host-fb-title');
+      fb.classList.remove('hidden', 'bg-emerald-50', 'border-emerald-200', 'bg-red-50', 'border-red-200', 'bg-blue-50', 'border-blue-200');
+      if (sel === -1) {
+        fb.classList.add('bg-blue-50', 'border-blue-200');
+        title.className = 'font-extrabold text-[#1C79C0]';
+        title.textContent = `Hết giờ! Đáp án đúng là ${OPTION_LABELS[q.correct]}`;
+      } else if (isRight) {
+        fb.classList.add('bg-emerald-50', 'border-emerald-200');
+        title.className = 'font-extrabold text-emerald-700';
+        title.textContent = `Chính xác! Đáp án ${OPTION_LABELS[q.correct]} (${spent.toFixed(1)}s)`;
+      } else {
+        fb.classList.add('bg-red-50', 'border-red-200');
+        title.className = 'font-extrabold text-red-700';
+        title.textContent = `Chưa chính xác! Đáp án đúng là ${OPTION_LABELS[q.correct]}`;
+      }
+      document.getElementById('host-fb-explain').textContent = q.explanation;
+
+      const btnNext = document.getElementById('host-btn-next');
+      if (!isLast) {
+        btnNext.textContent = 'Câu tiếp theo →';
+        btnNext.className = 'w-full py-2.5 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-sm cursor-pointer';
+      } else {
+        btnNext.textContent = 'Hoàn thành';
+        btnNext.className = 'w-full py-2.5 rounded-xl bg-[#00B050] hover:bg-emerald-600 text-white font-bold text-sm cursor-pointer';
+      }
+
+      const autoHint = document.getElementById('host-fb-auto-hint');
+      if (sel === -1) {
+        autoHint.textContent = isLast
+          ? 'Hết giờ! Đang quay lại màn hình Host để xem bảng xếp hạng...'
+          : 'Hết giờ! Đang tự động chuyển sang câu tiếp theo...';
+        hostAutoNextTimeout = setTimeout(() => hostGoNextOrFinish(), 1500);
+      } else if (hostTimeLeft <= 0) {
+        hostGoNextOrFinish();
+      } else {
+        autoHint.textContent = isLast
+          ? `Bấm "Hoàn thành" để kết thúc ngay, hoặc tự động quay lại màn hình Host sau ${hostTimeLeft.toFixed(1)}s`
+          : `Tự động chuyển câu tiếp theo sau ${hostTimeLeft.toFixed(1)}s`;
+      }
+    }
+
+    function exitHostLiveView(showFinishedBanner) {
+      clearHostQuestionTimers();
+      document.getElementById('host-live-stage').classList.add('hidden');
+      document.getElementById('host-dashboard').classList.remove('hidden');
+      if (showFinishedBanner) {
+        document.getElementById('challenge-finished-banner').classList.remove('hidden');
+      }
       fetchSession();
+      fetchLeaderboard();
+    }
+
+    function finishHostChallenge() {
+      exitHostLiveView(true);
+    }
+
+    async function startChallenge() {
+      if (currentSessionStatus !== 'LIVE') {
+        if (currentRegisteredCount === 0) {
+          const ok = confirm('Chưa có sinh viên nào vào phòng chờ. Bạn vẫn muốn bắt đầu thử thách ngay?');
+          if (!ok) return;
+        }
+        await fetch('/api/session/start-challenge', { method: 'POST' });
+        await fetchSession();
+      }
+      await startHostLiveView();
     }
 
     document.getElementById('btn-start-challenge').addEventListener('click', startChallenge);
     document.getElementById('btn-start-challenge-main').addEventListener('click', startChallenge);
+
+    document.getElementById('host-btn-next').addEventListener('click', () => {
+      hostGoNextOrFinish();
+    });
+
+    document.getElementById('btn-exit-live').addEventListener('click', () => {
+      exitHostLiveView(false);
+    });
+
+    document.getElementById('tab-lobby').addEventListener('click', () => switchRightPanel('lobby'));
+    document.getElementById('tab-leaderboard').addEventListener('click', () => switchRightPanel('leaderboard'));
+    document.getElementById('btn-view-leaderboard').addEventListener('click', () => {
+      if (!document.getElementById('host-live-stage').classList.contains('hidden')) {
+        exitHostLiveView(false);
+      }
+      switchRightPanel('leaderboard');
+    });
+    document.getElementById('btn-banner-leaderboard').addEventListener('click', () => {
+      switchRightPanel('leaderboard');
+    });
 
     document.getElementById('btn-save-url').addEventListener('click', async () => {
       const customBaseUrl = document.getElementById('input-custom-url').value.trim();
@@ -277,6 +634,11 @@
 
     document.getElementById('btn-reset').addEventListener('click', async () => {
       if (!confirm('Xóa toàn bộ danh sách sinh viên và bảng xếp hạng của phiên này để mở phòng chờ mới?')) return;
+      clearHostQuestionTimers();
+      document.getElementById('host-live-stage').classList.add('hidden');
+      document.getElementById('host-dashboard').classList.remove('hidden');
+      document.getElementById('challenge-finished-banner').classList.add('hidden');
+      switchRightPanel('lobby');
       await fetch('/api/reset', { method: 'POST' });
       fetchSession();
       fetchLeaderboard();

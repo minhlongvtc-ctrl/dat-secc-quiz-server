@@ -182,6 +182,20 @@ const QUIZ_QUESTIONS = [
 
 // ==================== SESSION & LOBBY STATE ====================
 let results = loadResults();
+let liveScores = new Map();
+for (const r of results) {
+  liveScores.set(r.mssv, {
+    name: r.name,
+    mssv: r.mssv,
+    score: r.score,
+    correctCount: r.correctCount,
+    answeredCount: r.totalQuestions,
+    totalQuestions: r.totalQuestions,
+    totalTime: r.totalTime,
+    finished: true,
+    updatedAt: r.finishedAt
+  });
+}
 let registeredPlayers = []; // { id, name, mssv, joinedAt }
 let session = {
   sessionId: 'ses_' + Date.now(),
@@ -265,6 +279,18 @@ function sortLeaderboard(list) {
     if (b.score !== a.score) return b.score - a.score;
     if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
     return a.totalTime - b.totalTime;
+  });
+}
+
+function sortLiveScores(list) {
+  return [...list].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
+    if (a.score > 0 || b.score > 0) {
+      if (a.totalTime !== b.totalTime) return a.totalTime - b.totalTime;
+    }
+    if (b.answeredCount !== a.answeredCount) return b.answeredCount - a.answeredCount;
+    return (a.joinedOrder || 0) - (b.joinedOrder || 0);
   });
 }
 
@@ -375,12 +401,53 @@ app.post('/api/register', (req, res) => {
     player.name = name;
   }
 
+  const existingLive = liveScores.get(mssv);
+  if (!existingLive) {
+    liveScores.set(mssv, {
+      name,
+      mssv,
+      score: 0,
+      correctCount: 0,
+      answeredCount: 0,
+      totalQuestions: QUIZ_QUESTIONS.length,
+      totalTime: 0,
+      finished: false,
+      joinedOrder: registeredPlayers.length,
+      updatedAt: new Date().toISOString()
+    });
+  } else {
+    existingLive.name = name;
+  }
+
   res.json({
     ok: true,
     player,
     sessionStatus: session.status,
     registeredCount: registeredPlayers.length
   });
+});
+
+// Cập nhật điểm trực tiếp sau mỗi câu hỏi cho bảng Live Score Top 10
+app.post('/api/progress', (req, res) => {
+  const { name, mssv, score, correctCount, answeredCount, totalQuestions, totalTime } = req.body;
+  if (!name || !mssv) {
+    return res.status(400).json({ error: 'Thiếu thông tin sinh viên.' });
+  }
+  const cleanMssv = String(mssv).trim().toUpperCase();
+  const prev = liveScores.get(cleanMssv);
+  liveScores.set(cleanMssv, {
+    name: String(name).trim(),
+    mssv: cleanMssv,
+    score: Number(score) || 0,
+    correctCount: Number(correctCount) || 0,
+    answeredCount: Number(answeredCount) || 0,
+    totalQuestions: Number(totalQuestions) || QUIZ_QUESTIONS.length,
+    totalTime: Number(Number(totalTime || 0).toFixed(2)),
+    finished: false,
+    joinedOrder: prev ? prev.joinedOrder : registeredPlayers.length + 1,
+    updatedAt: new Date().toISOString()
+  });
+  res.json({ ok: true });
 });
 
 // Sinh viên nộp kết quả Quiz
@@ -415,6 +482,21 @@ app.post('/api/submit', (req, res) => {
     results.push(record);
   }
 
+  const saved = existingIdx >= 0 ? results[existingIdx] : record;
+  const prevLive = liveScores.get(cleanMssv);
+  liveScores.set(cleanMssv, {
+    name: saved.name,
+    mssv: saved.mssv,
+    score: saved.score,
+    correctCount: saved.correctCount,
+    answeredCount: saved.totalQuestions,
+    totalQuestions: saved.totalQuestions,
+    totalTime: saved.totalTime,
+    finished: true,
+    joinedOrder: prevLive ? prevLive.joinedOrder : registeredPlayers.length + 1,
+    updatedAt: saved.finishedAt
+  });
+
   saveResults(results);
   const sorted = sortLeaderboard(results);
   const rank = sorted.findIndex(r => r.mssv === cleanMssv) + 1;
@@ -425,6 +507,12 @@ app.post('/api/submit', (req, res) => {
     totalPlayers: sorted.length,
     record
   });
+});
+
+// Lấy bảng Live Score Top 10 người chơi điểm cao nhất
+app.get('/api/live-scores', (req, res) => {
+  const top10 = sortLiveScores(Array.from(liveScores.values())).slice(0, 10);
+  res.json(top10);
 });
 
 // Lấy bảng xếp hạng
@@ -455,6 +543,7 @@ app.get('/api/export-csv', (req, res) => {
 // Reset phiên & xóa dữ liệu
 app.post('/api/reset', (req, res) => {
   results = [];
+  liveScores.clear();
   registeredPlayers = [];
   session.sessionId = 'ses_' + Date.now();
   session.status = 'WAITING';

@@ -14,6 +14,26 @@
       70% { box-shadow: 0 0 0 18px rgba(239, 136, 35, 0); }
       100% { box-shadow: 0 0 0 0 rgba(239, 136, 35, 0); }
     }
+    .live-row {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 64px;
+      transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1), opacity 350ms ease, background-color 350ms ease, border-color 350ms ease;
+      will-change: transform;
+    }
+    @keyframes scoreBump {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.12); color: #34D399; }
+      100% { transform: scale(1); }
+    }
+    .score-bump {
+      animation: scoreBump 0.7s ease-out;
+    }
+    .crown-gold { filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.7)); }
+    .crown-silver { filter: drop-shadow(0 0 5px rgba(226, 232, 240, 0.55)); }
+    .crown-bronze { filter: drop-shadow(0 0 5px rgba(217, 119, 6, 0.6)); }
   </style>
 </head>
 <body class="min-h-screen flex flex-col">
@@ -183,56 +203,79 @@
     </section>
   </main>
 
-  <!-- VIEW 2: HOST LIVE PLAYER-STYLE QUIZ STAGE -->
-  <main id="host-live-stage" class="hidden flex-1 max-w-2xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-4">
+  <!-- VIEW 2: HOST LIVE PLAYER-STYLE QUIZ STAGE (LEFT) + LIVE SCORE TOP 10 (RIGHT) -->
+  <main id="host-live-stage" class="hidden flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 lg:p-7 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
-    <!-- Top Live Status Bar -->
-    <div class="card-glass rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-      <div class="flex items-center gap-2.5">
-        <span class="px-3 py-1 rounded-full bg-[#00B050] text-white text-xs font-black">MÀN HÌNH THỬ THÁCH TRỰC TIẾP</span>
-        <span class="text-xs font-bold text-blue-200">
-          Đã nộp bài: <span id="live-submitted-count" class="text-emerald-300 font-black">0</span> / <span id="live-total-count" class="text-white font-black">0</span>
-        </span>
-      </div>
-      <button id="btn-exit-live" class="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold cursor-pointer">
-        ← Quay lại màn hình Host
-      </button>
-    </div>
-
-    <!-- Player-style Question Header & Progress -->
-    <div class="bg-white text-[#0E2841] rounded-2xl p-4 shadow-md flex items-center justify-between">
-      <div>
-        <span id="host-q-counter" class="text-xs font-extrabold text-[#1C79C0]">CÂU 1 / 10</span>
-        <div id="host-q-section" class="text-[11px] text-slate-500"></div>
-      </div>
-      <div class="px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-lg text-[#EF8823]" id="host-q-timer">
-        20.0s
-      </div>
-    </div>
-
-    <div class="w-full h-2.5 bg-white/20 rounded-full overflow-hidden">
-      <div id="host-q-bar" class="h-full bg-[#EF8823] transition-all duration-100" style="width: 100%;"></div>
-    </div>
-
-    <!-- Player-style Question Card -->
-    <div class="bg-white text-[#0E2841] rounded-2xl p-6 shadow-xl space-y-4">
-      <h2 id="host-q-text" class="text-lg sm:text-xl font-extrabold text-[#0E2841] leading-snug"></h2>
-      <div id="host-q-options" class="space-y-2.5"></div>
-      <div id="host-q-feedback" class="hidden rounded-xl p-4 border text-xs sm:text-sm space-y-2">
-        <div id="host-fb-title" class="font-extrabold"></div>
-        <p id="host-fb-explain" class="text-slate-700"></p>
-        <div id="host-fb-auto-hint" class="text-[11px] font-semibold text-slate-500"></div>
-        <button id="host-btn-next" class="w-full py-2.5 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-sm cursor-pointer">
-          Câu tiếp theo →
+    <!-- LEFT COLUMN: ENLARGED QUIZ BLOCK -->
+    <section class="lg:col-span-8 flex flex-col gap-4">
+      <!-- Top Live Status Bar -->
+      <div class="card-glass rounded-2xl px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <span class="px-3.5 py-1 rounded-full bg-[#00B050] text-white text-xs sm:text-sm font-black">MÀN HÌNH THỬ THÁCH TRỰC TIẾP</span>
+          <span class="text-xs sm:text-sm font-bold text-blue-200">
+            Đã nộp bài: <span id="live-submitted-count" class="text-emerald-300 font-black">0</span> / <span id="live-total-count" class="text-white font-black">0</span>
+          </span>
+        </div>
+        <button id="btn-exit-live" class="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-xs sm:text-sm font-bold cursor-pointer">
+          ← Quay lại màn hình Host
         </button>
       </div>
-    </div>
+
+      <!-- Player-style Question Header & Progress -->
+      <div class="bg-white text-[#0E2841] rounded-2xl p-5 shadow-md flex items-center justify-between">
+        <div>
+          <span id="host-q-counter" class="text-sm font-extrabold text-[#1C79C0]">CÂU 1 / 10</span>
+          <div id="host-q-section" class="text-xs sm:text-sm text-slate-500 mt-0.5"></div>
+        </div>
+        <div class="px-4 py-2 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-2xl text-[#EF8823]" id="host-q-timer">
+          20.0s
+        </div>
+      </div>
+
+      <div class="w-full h-3 bg-white/20 rounded-full overflow-hidden">
+        <div id="host-q-bar" class="h-full bg-[#EF8823] transition-all duration-100" style="width: 100%;"></div>
+      </div>
+
+      <!-- Player-style Question Card -->
+      <div class="bg-white text-[#0E2841] rounded-2xl p-6 sm:p-8 shadow-xl space-y-5">
+        <h2 id="host-q-text" class="text-xl sm:text-2xl lg:text-[26px] font-extrabold text-[#0E2841] leading-snug"></h2>
+        <div id="host-q-options" class="space-y-3"></div>
+        <div id="host-q-feedback" class="hidden rounded-xl p-5 border text-sm sm:text-base space-y-2.5">
+          <div id="host-fb-title" class="font-extrabold"></div>
+          <p id="host-fb-explain" class="text-slate-700"></p>
+          <div id="host-fb-auto-hint" class="text-xs font-semibold text-slate-500"></div>
+          <button id="host-btn-next" class="w-full py-3 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-base cursor-pointer">
+            Câu tiếp theo →
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: LIVE SCORE TOP 10 WITH CROWNS & SMOOTH REORDER -->
+    <aside class="lg:col-span-4 card-glass rounded-2xl p-5 flex flex-col gap-4">
+      <div class="flex items-center justify-between border-b border-white/15 pb-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <h3 class="text-lg sm:text-xl font-black tracking-tight text-white">LIVE SCORE — TOP 10</h3>
+          </div>
+          <p class="text-xs text-blue-200 mt-0.5">Cập nhật trực tiếp theo từng câu hỏi</p>
+        </div>
+      </div>
+
+      <div id="live-score-empty" class="py-12 text-center text-xs text-blue-200/70 bg-[#091C2E]/60 rounded-xl border border-dashed border-white/15">
+        Đang chờ điểm trực tiếp từ các thí sinh...
+      </div>
+
+      <div id="live-score-list" class="relative w-full transition-all duration-500" style="height: 0px;"></div>
+    </aside>
 
   </main>
 
   <script>
     const OPTION_LABELS = ['A', 'B', 'C', 'D'];
     const TIME_LIMIT = 20.0;
+    const LIVE_ROW_STRIDE = 72;
 
     let urlInitialized = false;
     let currentRegisteredCount = 0;
@@ -247,6 +290,8 @@
     let hostQTimer = null;
     let hostAutoNextTimeout = null;
     let hostIsTransitioning = false;
+    let liveScorePoll = null;
+    const liveRowMap = new Map();
 
     function escapeHtml(s) {
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -257,6 +302,170 @@
       const d = new Date(iso);
       if (Number.isNaN(d.getTime())) return '--:--:--';
       return d.toLocaleTimeString('vi-VN', { hour12: false });
+    }
+
+    function getCrownSvg(tier) {
+      const palette = {
+        gold: { cls: 'crown-gold', fill: '#FACC15', stroke: '#F59E0B', gem: '#FEF08A' },
+        silver: { cls: 'crown-silver', fill: '#E2E8F0', stroke: '#94A3B8', gem: '#FFFFFF' },
+        bronze: { cls: 'crown-bronze', fill: '#D97706', stroke: '#92400E', gem: '#FDBA74' }
+      }[tier];
+      return `
+        <svg viewBox="0 0 24 24" class="w-7 h-7 ${palette.cls}" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M3 18L4.8 7.5L9.5 12L12 5.5L14.5 12L19.2 7.5L21 18H3Z" fill="${palette.fill}" stroke="${palette.stroke}" stroke-width="1.6" stroke-linejoin="round"/>
+          <rect x="3.5" y="19" width="17" height="2.2" rx="1.1" fill="${palette.stroke}"/>
+          <circle cx="12" cy="4.2" r="1.3" fill="${palette.gem}"/>
+          <circle cx="4.5" cy="6.4" r="1.1" fill="${palette.gem}"/>
+          <circle cx="19.5" cy="6.4" r="1.1" fill="${palette.gem}"/>
+        </svg>
+      `;
+    }
+
+    function getRowVisualConfig(rankIdx) {
+      if (rankIdx === 0) {
+        return {
+          rowClass: 'live-row rounded-xl px-3.5 flex items-center justify-between gap-2.5 border bg-amber-400/15 border-amber-400/70 shadow-lg',
+          rankHtml: getCrownSvg('gold'),
+          scoreColor: 'text-amber-300'
+        };
+      }
+      if (rankIdx === 1) {
+        return {
+          rowClass: 'live-row rounded-xl px-3.5 flex items-center justify-between gap-2.5 border bg-slate-300/15 border-slate-300/60 shadow',
+          rankHtml: getCrownSvg('silver'),
+          scoreColor: 'text-slate-100'
+        };
+      }
+      if (rankIdx === 2) {
+        return {
+          rowClass: 'live-row rounded-xl px-3.5 flex items-center justify-between gap-2.5 border bg-orange-700/20 border-orange-400/60 shadow',
+          rankHtml: getCrownSvg('bronze'),
+          scoreColor: 'text-orange-300'
+        };
+      }
+      return {
+        rowClass: 'live-row rounded-xl px-3.5 flex items-center justify-between gap-2.5 border bg-[#091C2E]/85 border-white/15',
+        rankHtml: `<span class="w-7 h-7 rounded-lg bg-white/10 text-blue-200 font-black text-xs flex items-center justify-center">#${rankIdx + 1}</span>`,
+        scoreColor: 'text-white'
+      };
+    }
+
+    function clearLiveScoreBoard() {
+      for (const entry of liveRowMap.values()) {
+        entry.el.remove();
+      }
+      liveRowMap.clear();
+      const container = document.getElementById('live-score-list');
+      container.style.height = '0px';
+      document.getElementById('live-score-empty').classList.remove('hidden');
+    }
+
+    function renderLiveScoreBoard(list) {
+      const container = document.getElementById('live-score-list');
+      const emptyEl = document.getElementById('live-score-empty');
+
+      if (!Array.isArray(list) || list.length === 0) {
+        clearLiveScoreBoard();
+        return;
+      }
+
+      emptyEl.classList.add('hidden');
+      container.style.height = `${list.length * LIVE_ROW_STRIDE - 8}px`;
+
+      const activeMssvSet = new Set();
+
+      list.forEach((player, idx) => {
+        activeMssvSet.add(player.mssv);
+        const visual = getRowVisualConfig(idx);
+        const targetY = idx * LIVE_ROW_STRIDE;
+        let entry = liveRowMap.get(player.mssv);
+        const isNew = !entry;
+
+        if (isNew) {
+          const el = document.createElement('div');
+          el.className = visual.rowClass;
+          el.style.opacity = '0';
+          el.style.transform = `translateY(${(idx + 1) * LIVE_ROW_STRIDE}px)`;
+          el.innerHTML = `
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div data-role="rank" class="shrink-0 flex items-center justify-center w-8"></div>
+              <div class="min-w-0">
+                <div data-role="name" class="font-extrabold text-sm text-white truncate"></div>
+                <div data-role="meta" class="text-[11px] text-blue-200 truncate"></div>
+              </div>
+            </div>
+            <div class="shrink-0 text-right">
+              <div data-role="score" class="font-black text-base font-mono"></div>
+              <div data-role="status" class="text-[10px] font-bold"></div>
+            </div>
+          `;
+          container.appendChild(el);
+          entry = { el, lastScore: player.score, lastRank: idx };
+          liveRowMap.set(player.mssv, entry);
+        } else {
+          entry.el.className = visual.rowClass;
+        }
+
+        const el = entry.el;
+        el.querySelector('[data-role="rank"]').innerHTML = visual.rankHtml;
+        el.querySelector('[data-role="name"]').textContent = player.name;
+
+        const answered = Number(player.answeredCount) || 0;
+        const totalQ = Number(player.totalQuestions) || 10;
+        const correct = Number(player.correctCount) || 0;
+        el.querySelector('[data-role="meta"]').textContent = `${player.mssv} • Câu ${answered}/${totalQ} • Đúng ${correct}`;
+
+        const scoreEl = el.querySelector('[data-role="score"]');
+        scoreEl.className = `font-black text-base font-mono ${visual.scoreColor}`;
+        scoreEl.textContent = `${(Number(player.score) || 0).toLocaleString('vi-VN')} đ`;
+
+        const statusEl = el.querySelector('[data-role="status"]');
+        if (player.finished) {
+          statusEl.className = 'text-[10px] font-bold text-emerald-300';
+          statusEl.textContent = '✓ Hoàn thành';
+        } else {
+          statusEl.className = 'text-[10px] font-semibold text-blue-300/80';
+          statusEl.textContent = `${Number(player.totalTime || 0).toFixed(1)}s`;
+        }
+
+        if (!isNew && player.score > entry.lastScore) {
+          scoreEl.classList.remove('score-bump');
+          void scoreEl.offsetWidth;
+          scoreEl.classList.add('score-bump');
+        }
+
+        if (!isNew && idx < entry.lastRank) {
+          el.style.zIndex = String(20 - idx);
+        } else {
+          el.style.zIndex = String(10 - idx);
+        }
+
+        if (isNew) {
+          void el.offsetHeight;
+        }
+        el.style.opacity = '1';
+        el.style.transform = `translateY(${targetY}px)`;
+
+        entry.lastScore = player.score;
+        entry.lastRank = idx;
+      });
+
+      for (const [mssv, entry] of liveRowMap.entries()) {
+        if (!activeMssvSet.has(mssv)) {
+          liveRowMap.delete(mssv);
+          entry.el.style.opacity = '0';
+          entry.el.style.transform = `translateY(${list.length * LIVE_ROW_STRIDE}px)`;
+          setTimeout(() => entry.el.remove(), 400);
+        }
+      }
+    }
+
+    async function fetchLiveScores() {
+      try {
+        const res = await fetch('/api/live-scores');
+        const list = await res.json();
+        renderLiveScoreBoard(list);
+      } catch (e) {}
     }
 
     function switchRightPanel(tab) {
@@ -444,6 +653,9 @@
       document.getElementById('challenge-finished-banner').classList.add('hidden');
       document.getElementById('host-dashboard').classList.add('hidden');
       document.getElementById('host-live-stage').classList.remove('hidden');
+      fetchLiveScores();
+      if (liveScorePoll) clearInterval(liveScorePoll);
+      liveScorePoll = setInterval(fetchLiveScores, 1000);
       renderHostQuestion();
     }
 
@@ -467,10 +679,10 @@
       q.options.forEach((opt, idx) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'w-full text-left p-3.5 rounded-xl border-2 border-slate-200 bg-slate-50 hover:border-[#1C79C0] active:scale-[0.99] flex items-start gap-3 transition cursor-pointer';
+        btn.className = 'w-full text-left p-4 sm:p-5 rounded-xl border-2 border-slate-200 bg-slate-50 hover:border-[#1C79C0] active:scale-[0.99] flex items-start gap-3.5 transition cursor-pointer';
         btn.innerHTML = `
-          <span class="shrink-0 w-7 h-7 rounded-lg bg-[#1C79C0] text-white font-black text-xs flex items-center justify-center">${OPTION_LABELS[idx]}</span>
-          <span class="text-sm sm:text-base font-semibold text-[#0E2841] pt-0.5">${escapeHtml(opt)}</span>
+          <span class="shrink-0 w-9 h-9 rounded-lg bg-[#1C79C0] text-white font-black text-sm flex items-center justify-center">${OPTION_LABELS[idx]}</span>
+          <span class="text-base sm:text-lg font-semibold text-[#0E2841] pt-0.5">${escapeHtml(opt)}</span>
         `;
         btn.addEventListener('click', () => pickHostAnswer(idx));
         opts.appendChild(btn);
@@ -522,9 +734,9 @@
       btns.forEach((b, idx) => {
         b.disabled = true;
         if (idx === q.correct) {
-          b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-[#00B050] bg-emerald-50 flex items-start gap-3';
+          b.className = 'w-full text-left p-4 sm:p-5 rounded-xl border-2 border-[#00B050] bg-emerald-50 flex items-start gap-3.5';
         } else if (idx === sel) {
-          b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-red-500 bg-red-50 flex items-start gap-3';
+          b.className = 'w-full text-left p-4 sm:p-5 rounded-xl border-2 border-red-500 bg-red-50 flex items-start gap-3.5';
         } else {
           b.classList.add('opacity-50');
         }
@@ -551,10 +763,10 @@
       const btnNext = document.getElementById('host-btn-next');
       if (!isLast) {
         btnNext.textContent = 'Câu tiếp theo →';
-        btnNext.className = 'w-full py-2.5 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-sm cursor-pointer';
+        btnNext.className = 'w-full py-3 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-base cursor-pointer';
       } else {
         btnNext.textContent = 'Hoàn thành';
-        btnNext.className = 'w-full py-2.5 rounded-xl bg-[#00B050] hover:bg-emerald-600 text-white font-bold text-sm cursor-pointer';
+        btnNext.className = 'w-full py-3 rounded-xl bg-[#00B050] hover:bg-emerald-600 text-white font-bold text-base cursor-pointer';
       }
 
       const autoHint = document.getElementById('host-fb-auto-hint');
@@ -574,6 +786,10 @@
 
     function exitHostLiveView(showFinishedBanner) {
       clearHostQuestionTimers();
+      if (liveScorePoll) {
+        clearInterval(liveScorePoll);
+        liveScorePoll = null;
+      }
       document.getElementById('host-live-stage').classList.add('hidden');
       document.getElementById('host-dashboard').classList.remove('hidden');
       if (showFinishedBanner) {
@@ -635,6 +851,11 @@
     document.getElementById('btn-reset').addEventListener('click', async () => {
       if (!confirm('Xóa toàn bộ danh sách sinh viên và bảng xếp hạng của phiên này để mở phòng chờ mới?')) return;
       clearHostQuestionTimers();
+      if (liveScorePoll) {
+        clearInterval(liveScorePoll);
+        liveScorePoll = null;
+      }
+      clearLiveScoreBoard();
       document.getElementById('host-live-stage').classList.add('hidden');
       document.getElementById('host-dashboard').classList.remove('hidden');
       document.getElementById('challenge-finished-banner').classList.add('hidden');

@@ -331,6 +331,20 @@
 
       document.getElementById('header-score').textContent = `${score.toLocaleString('vi-VN')} đ`;
 
+      fetch('/api/progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: player.name,
+          mssv: player.mssv,
+          score,
+          correctCount,
+          answeredCount: qIdx + 1,
+          totalQuestions: questions.length,
+          totalTime
+        })
+      }).catch(() => {});
+
       const btns = document.querySelectorAll('#q-options button');
       btns.forEach((b, idx) => {
         b.disabled = true;

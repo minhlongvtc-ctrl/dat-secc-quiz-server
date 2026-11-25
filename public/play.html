@@ -72,17 +72,20 @@
         <div id="wait-player-count" class="text-2xl font-black text-[#EF8823]">1 sinh viên</div>
         <div class="text-xs font-semibold text-[#0E2841]">Đang chờ Ban Tổ Chức bấm <strong>"Bắt đầu thử thách"</strong>...</div>
       </div>
-      <p class="text-xs text-slate-500">Vui lòng giữ màn hình sáng. Khi Ban Tổ Chức bấm <strong>"Bắt đầu thử thách"</strong>, bài thi gồm 10 câu hỏi trắc nghiệm (20 giây/câu) sẽ tự động bắt đầu ngay. Hết giờ mỗi câu sẽ tự động chuyển câu tiếp theo; trả lời đúng &amp; càng nhanh điểm càng cao!</p>
+      <p class="text-xs text-slate-500">Vui lòng giữ màn hình sáng. Mỗi câu có 20 giây trả lời (chọn xong hệ thống giữ bí mật đến khi hết giờ) và 5 giây công bố đáp án trước khi tự động chuyển câu tiếp theo.</p>
     </section>
 
-    <!-- STEP 3: QUIZ ARENA -->
+    <!-- STEP 3: QUIZ ARENA (SYNCHRONIZED 2-PHASE) -->
     <section id="step-quiz" class="hidden space-y-4">
-      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex items-center justify-between">
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 flex items-center justify-between gap-2">
         <div>
-          <span id="q-counter" class="text-xs font-extrabold text-[#1C79C0]">CÂU 1 / 10</span>
-          <div id="q-section" class="text-[11px] text-slate-500"></div>
+          <div class="flex items-center gap-2">
+            <span id="q-counter" class="text-xs font-extrabold text-[#1C79C0]">CÂU 1 / 10</span>
+            <span id="q-phase" class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 text-[#1C79C0]">Đang trả lời</span>
+          </div>
+          <div id="q-section" class="text-[11px] text-slate-500 mt-0.5"></div>
         </div>
-        <div class="px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-base text-[#EF8823]" id="q-timer">
+        <div class="px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-base text-[#EF8823] shrink-0" id="q-timer">
           20.0s
         </div>
       </div>
@@ -94,12 +97,23 @@
       <div class="bg-white rounded-2xl p-5 shadow-md border border-slate-200 space-y-4">
         <h2 id="q-text" class="text-base sm:text-lg font-extrabold text-[#0E2841] leading-snug"></h2>
         <div id="q-options" class="space-y-2.5"></div>
+
+        <!-- Pha 1 Neutral Locked State (NO right/wrong leak) -->
+        <div id="q-locked-box" class="hidden rounded-xl p-4 border border-blue-200 bg-blue-50 text-xs sm:text-sm space-y-2.5">
+          <div id="locked-title" class="font-extrabold text-[#1C79C0]">Đã ghi nhận lựa chọn!</div>
+          <p id="locked-hint" class="text-slate-600 text-xs"></p>
+          <button id="btn-finish-early" type="button" class="hidden w-full py-2.5 rounded-xl bg-[#00B050] hover:bg-emerald-600 text-white font-bold text-sm cursor-pointer">
+            Hoàn thành
+          </button>
+        </div>
+
+        <!-- Pha 2 Reveal State (Shown ONLY after 20s Answer Phase ends) -->
         <div id="q-feedback" class="hidden rounded-xl p-4 border text-xs sm:text-sm space-y-2">
           <div id="fb-title" class="font-extrabold"></div>
           <p id="fb-explain" class="text-slate-700"></p>
           <div id="fb-auto-hint" class="text-[11px] font-semibold text-slate-500"></div>
-          <button id="btn-next" class="w-full py-2.5 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-sm cursor-pointer">
-            Câu tiếp theo →
+          <button id="btn-finish-reveal" type="button" class="hidden w-full py-2.5 rounded-xl bg-[#00B050] hover:bg-emerald-600 text-white font-bold text-sm cursor-pointer">
+            Hoàn thành
           </button>
         </div>
       </div>
@@ -136,19 +150,17 @@
 
   <script>
     const OPTION_LABELS = ['A', 'B', 'C', 'D'];
-    const TIME_LIMIT = 20.0;
 
     let questions = [];
     let player = null;
-    let qIdx = 0;
-    let score = 0;
-    let correctCount = 0;
-    let totalTime = 0;
-    let timeLeft = TIME_LIMIT;
-    let answered = false;
-    let qTimer = null;
-    let autoNextTimeout = null;
-    let isTransitioning = false;
+    let answerDurationSec = 20;
+    let revealDurationSec = 5;
+    let localStartTs = null;
+    let quizLoop = null;
+    let renderedQIdx = -1;
+    let selectedOption = -1;
+    let selectedSpent = 0;
+    let revealRequestedForQ = false;
     let hasSubmitted = false;
     let waitPoll = null;
     let rankPoll = null;
@@ -157,26 +169,10 @@
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
-    function clearQuestionTimers() {
-      if (qTimer) {
-        clearInterval(qTimer);
-        qTimer = null;
-      }
-      if (autoNextTimeout) {
-        clearTimeout(autoNextTimeout);
-        autoNextTimeout = null;
-      }
-    }
-
-    function goNextOrSubmit() {
-      if (isTransitioning) return;
-      isTransitioning = true;
-      clearQuestionTimers();
-      if (qIdx < questions.length - 1) {
-        qIdx += 1;
-        renderQuestion();
-      } else {
-        submitQuiz();
+    function stopQuizLoop() {
+      if (quizLoop) {
+        clearInterval(quizLoop);
+        quizLoop = null;
       }
     }
 
@@ -209,7 +205,7 @@
 
       document.getElementById('step-register').classList.add('hidden');
       if (data.sessionStatus === 'LIVE') {
-        startQuiz();
+        startQuiz(data.startedAt, data.serverNow, data.answerDurationSec, data.revealDurationSec);
       } else {
         enterWaitingRoom(data.registeredCount || 1);
       }
@@ -227,46 +223,56 @@
           if (typeof s.registeredCount === 'number') {
             document.getElementById('wait-player-count').textContent = `${s.registeredCount} sinh viên`;
           }
-          if (s.status === 'LIVE') {
+          if (s.status === 'LIVE' || s.status === 'FINISHED') {
             clearInterval(waitPoll);
             waitPoll = null;
             document.getElementById('step-waiting').classList.add('hidden');
-            startQuiz();
+            startQuiz(s.startedAt, s.serverNow, s.answerDurationSec, s.revealDurationSec);
           }
         } catch (e) {}
       }, 1000);
     }
 
-    function startQuiz() {
+    function startQuiz(startedAt, serverNow, answerSec, revealSec) {
       if (rankPoll) {
         clearInterval(rankPoll);
         rankPoll = null;
       }
-      qIdx = 0;
-      score = 0;
-      correctCount = 0;
-      totalTime = 0;
+      stopQuizLoop();
+
+      answerDurationSec = Number(answerSec) || 20;
+      revealDurationSec = Number(revealSec) || 5;
+      const elapsedOnJoinMs = startedAt ? Math.max(0, (serverNow || Date.now()) - startedAt) : 0;
+      localStartTs = performance.now() - elapsedOnJoinMs;
+
+      renderedQIdx = -1;
+      selectedOption = -1;
+      selectedSpent = 0;
+      revealRequestedForQ = false;
       hasSubmitted = false;
-      isTransitioning = false;
+
       document.getElementById('header-score').classList.remove('hidden');
+      document.getElementById('header-score').textContent = '0 đ';
       document.getElementById('step-quiz').classList.remove('hidden');
-      renderQuestion();
+
+      tickQuiz();
+      quizLoop = setInterval(tickQuiz, 80);
     }
 
-    function renderQuestion() {
-      clearQuestionTimers();
-      isTransitioning = false;
-      const q = questions[qIdx];
-      answered = false;
-      timeLeft = TIME_LIMIT;
+    function renderQuestion(qIdx) {
+      renderedQIdx = qIdx;
+      selectedOption = -1;
+      selectedSpent = 0;
+      revealRequestedForQ = false;
 
+      const q = questions[qIdx];
       document.getElementById('q-counter').textContent = `CÂU ${qIdx + 1} / ${questions.length}`;
       document.getElementById('q-section').textContent = `${q.section} (${q.slide})`;
       document.getElementById('q-text').textContent = q.question;
-      document.getElementById('header-score').textContent = `${score.toLocaleString('vi-VN')} đ`;
-      document.getElementById('q-timer').textContent = `${TIME_LIMIT.toFixed(1)}s`;
-      document.getElementById('q-bar').style.width = '100%';
+      document.getElementById('q-locked-box').classList.add('hidden');
+      document.getElementById('btn-finish-early').classList.add('hidden');
       document.getElementById('q-feedback').classList.add('hidden');
+      document.getElementById('btn-finish-reveal').classList.add('hidden');
       document.getElementById('fb-auto-hint').textContent = '';
 
       const opts = document.getElementById('q-options');
@@ -279,132 +285,183 @@
           <span class="shrink-0 w-7 h-7 rounded-lg bg-[#1C79C0] text-white font-black text-xs flex items-center justify-center">${OPTION_LABELS[idx]}</span>
           <span class="text-sm font-semibold text-[#0E2841] pt-0.5">${escapeHtml(opt)}</span>
         `;
-        btn.addEventListener('click', () => pickAnswer(idx));
+        btn.addEventListener('click', () => pickAnswer(qIdx, idx));
         opts.appendChild(btn);
       });
-
-      const startTs = performance.now();
-      qTimer = setInterval(() => {
-        const elapsed = (performance.now() - startTs) / 1000;
-        timeLeft = Math.max(0, TIME_LIMIT - elapsed);
-        document.getElementById('q-timer').textContent = `${timeLeft.toFixed(1)}s`;
-        document.getElementById('q-bar').style.width = `${(timeLeft / TIME_LIMIT) * 100}%`;
-
-        if (answered) {
-          const isLast = qIdx === questions.length - 1;
-          document.getElementById('fb-auto-hint').textContent = isLast
-            ? `Bấm "Hoàn thành" để kết thúc ngay, hoặc tự động nộp bài sau ${timeLeft.toFixed(1)}s`
-            : `Tự động chuyển câu tiếp theo sau ${timeLeft.toFixed(1)}s`;
-        }
-
-        if (timeLeft <= 0) {
-          clearInterval(qTimer);
-          qTimer = null;
-          if (answered) {
-            goNextOrSubmit();
-          } else {
-            pickAnswer(-1);
-          }
-        }
-      }, 80);
     }
 
-    function pickAnswer(sel) {
-      if (answered) return;
-      answered = true;
+    function tickQuiz() {
+      if (hasSubmitted || !questions.length || localStartTs === null) return;
 
-      if (sel === -1 || timeLeft <= 0) {
-        if (qTimer) {
-          clearInterval(qTimer);
-          qTimer = null;
+      const cycleSec = answerDurationSec + revealDurationSec;
+      const elapsedSec = Math.max(0, (performance.now() - localStartTs) / 1000);
+      const totalDuration = questions.length * cycleSec;
+
+      if (elapsedSec >= totalDuration) {
+        submitQuiz();
+        return;
+      }
+
+      const qIdx = Math.floor(elapsedSec / cycleSec);
+      const inQ = elapsedSec - qIdx * cycleSec;
+
+      if (qIdx !== renderedQIdx) {
+        renderQuestion(qIdx);
+      }
+
+      const phaseEl = document.getElementById('q-phase');
+      const timerEl = document.getElementById('q-timer');
+      const barEl = document.getElementById('q-bar');
+
+      if (inQ < answerDurationSec) {
+        const rem = Math.max(0, answerDurationSec - inQ);
+        phaseEl.textContent = 'Đang trả lời';
+        phaseEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 text-[#1C79C0]';
+        timerEl.textContent = `${rem.toFixed(1)}s`;
+        timerEl.className = 'px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-base text-[#EF8823] shrink-0';
+        barEl.className = 'h-full bg-[#1C79C0] transition-all duration-100';
+        barEl.style.width = `${(rem / answerDurationSec) * 100}%`;
+
+        if (selectedOption !== -1) {
+          const isLast = qIdx === questions.length - 1;
+          document.getElementById('locked-hint').textContent = isLast
+            ? `Bạn đã chọn ${OPTION_LABELS[selectedOption]} (${selectedSpent.toFixed(1)}s). Bấm "Hoàn thành" để nộp bài ngay, hoặc chờ công bố đáp án sau ${rem.toFixed(1)}s.`
+            : `Đáp án sẽ được công bố đồng loạt khi hết giờ (${rem.toFixed(1)}s) để đảm bảo công bằng.`;
         }
+      } else {
+        const remReveal = Math.max(0, cycleSec - inQ);
+        phaseEl.textContent = 'Công bố đáp án';
+        phaseEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700';
+        timerEl.textContent = `Công bố: ${remReveal.toFixed(1)}s`;
+        timerEl.className = 'px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 font-mono font-black text-sm text-emerald-700 shrink-0';
+        barEl.className = 'h-full bg-[#00B050] transition-all duration-100';
+        barEl.style.width = `${(remReveal / revealDurationSec) * 100}%`;
+
+        document.querySelectorAll('#q-options button').forEach(b => {
+          b.disabled = true;
+        });
+        document.getElementById('q-locked-box').classList.add('hidden');
+
+        if (!revealRequestedForQ) {
+          revealRequestedForQ = true;
+          fetchAndShowReveal(qIdx);
+        }
+
+        const isLast = qIdx === questions.length - 1;
+        document.getElementById('fb-auto-hint').textContent = isLast
+          ? `Tự động nộp bài sau ${remReveal.toFixed(1)}s...`
+          : `Tự động chuyển sang câu tiếp theo sau ${remReveal.toFixed(1)}s...`;
       }
+    }
 
-      const q = questions[qIdx];
-      const spent = Math.min(TIME_LIMIT, Math.max(0.1, TIME_LIMIT - timeLeft));
-      const isRight = sel === q.correct;
-      const isLast = qIdx === questions.length - 1;
-      let earned = 0;
+    async function pickAnswer(qIdx, sel) {
+      if (selectedOption !== -1 || qIdx !== renderedQIdx || hasSubmitted) return;
+      const cycleSec = answerDurationSec + revealDurationSec;
+      const elapsedSec = Math.max(0, (performance.now() - localStartTs) / 1000);
+      const inQ = elapsedSec - qIdx * cycleSec;
+      if (inQ >= answerDurationSec) return;
 
-      if (isRight) {
-        const bonus = Math.round((timeLeft / TIME_LIMIT) * 500);
-        earned = 500 + bonus;
-        score += earned;
-        correctCount += 1;
-      }
-      totalTime += spent;
-
-      document.getElementById('header-score').textContent = `${score.toLocaleString('vi-VN')} đ`;
-
-      fetch('/api/progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: player.name,
-          mssv: player.mssv,
-          score,
-          correctCount,
-          answeredCount: qIdx + 1,
-          totalQuestions: questions.length,
-          totalTime
-        })
-      }).catch(() => {});
+      selectedOption = sel;
+      selectedSpent = Math.min(answerDurationSec, Math.max(0.1, inQ));
 
       const btns = document.querySelectorAll('#q-options button');
       btns.forEach((b, idx) => {
         b.disabled = true;
-        if (idx === q.correct) {
-          b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-[#00B050] bg-emerald-50 flex items-start gap-3';
-        } else if (idx === sel) {
-          b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-red-500 bg-red-50 flex items-start gap-3';
+        if (idx === sel) {
+          b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-[#1C79C0] bg-blue-50 flex items-start gap-3';
         } else {
           b.classList.add('opacity-50');
         }
       });
 
-      const fb = document.getElementById('q-feedback');
-      const title = document.getElementById('fb-title');
-      fb.classList.remove('hidden', 'bg-emerald-50', 'border-emerald-200', 'bg-red-50', 'border-red-200');
-      if (isRight) {
-        fb.classList.add('bg-emerald-50', 'border-emerald-200');
-        title.className = 'font-extrabold text-emerald-700';
-        title.textContent = `Chính xác! +${earned} điểm (${spent.toFixed(1)}s)`;
+      const isLast = qIdx === questions.length - 1;
+      document.getElementById('locked-title').textContent = `Đã ghi nhận lựa chọn ${OPTION_LABELS[sel]} (${selectedSpent.toFixed(1)}s)`;
+      document.getElementById('q-locked-box').classList.remove('hidden');
+      if (isLast) {
+        document.getElementById('btn-finish-early').classList.remove('hidden');
       } else {
-        fb.classList.add('bg-red-50', 'border-red-200');
-        title.className = 'font-extrabold text-red-700';
-        title.textContent = sel === -1
-          ? `Hết giờ! Đáp án đúng là ${OPTION_LABELS[q.correct]}`
-          : `Chưa chính xác! Đáp án đúng là ${OPTION_LABELS[q.correct]}`;
-      }
-      document.getElementById('fb-explain').textContent = q.explanation;
-
-      const btnNext = document.getElementById('btn-next');
-      if (!isLast) {
-        btnNext.textContent = 'Câu tiếp theo →';
-        btnNext.className = 'w-full py-2.5 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-sm cursor-pointer';
-      } else {
-        btnNext.textContent = 'Hoàn thành';
-        btnNext.className = 'w-full py-2.5 rounded-xl bg-[#00B050] hover:bg-emerald-600 text-white font-bold text-sm cursor-pointer';
+        document.getElementById('btn-finish-early').classList.add('hidden');
       }
 
-      const autoHint = document.getElementById('fb-auto-hint');
-      if (sel === -1) {
-        autoHint.textContent = isLast
-          ? 'Hết giờ! Đang tự động nộp bài và kết thúc phần thi...'
-          : 'Hết giờ! Đang tự động chuyển sang câu tiếp theo...';
-        autoNextTimeout = setTimeout(() => goNextOrSubmit(), 1500);
-      } else if (timeLeft <= 0) {
-        goNextOrSubmit();
-      } else {
-        autoHint.textContent = isLast
-          ? `Bấm "Hoàn thành" để kết thúc ngay, hoặc tự động nộp bài sau ${timeLeft.toFixed(1)}s`
-          : `Tự động chuyển câu tiếp theo sau ${timeLeft.toFixed(1)}s`;
-      }
+      try {
+        const res = await fetch('/api/answer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: player.name,
+            mssv: player.mssv,
+            questionIndex: qIdx,
+            selected: sel
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (typeof data.spent === 'number') {
+            selectedSpent = data.spent;
+            document.getElementById('locked-title').textContent = `Đã ghi nhận lựa chọn ${OPTION_LABELS[sel]} (${selectedSpent.toFixed(1)}s)`;
+          }
+        }
+      } catch (e) {}
     }
 
-    document.getElementById('btn-next').addEventListener('click', () => {
-      goNextOrSubmit();
-    });
+    async function fetchAndShowReveal(qIdx, attempt = 0) {
+      try {
+        const res = await fetch(`/api/reveal/${qIdx}?mssv=${encodeURIComponent(player.mssv)}`);
+        if (res.status === 403 && attempt < 4) {
+          setTimeout(() => {
+            if (renderedQIdx === qIdx && !hasSubmitted) {
+              fetchAndShowReveal(qIdx, attempt + 1);
+            }
+          }, 250);
+          return;
+        }
+        if (!res.ok || renderedQIdx !== qIdx || hasSubmitted) return;
+
+        const data = await res.json();
+        const pr = data.playerResult || { selected: selectedOption, isRight: false, earned: 0, spent: selectedSpent, totalScore: 0 };
+        const sel = typeof pr.selected === 'number' ? pr.selected : selectedOption;
+
+        const btns = document.querySelectorAll('#q-options button');
+        btns.forEach((b, idx) => {
+          b.disabled = true;
+          b.classList.remove('opacity-50');
+          if (idx === data.correct) {
+            b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-[#00B050] bg-emerald-50 flex items-start gap-3';
+          } else if (idx === sel) {
+            b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-red-500 bg-red-50 flex items-start gap-3';
+          } else {
+            b.className = 'w-full text-left p-3.5 rounded-xl border-2 border-slate-200 bg-slate-50 opacity-50 flex items-start gap-3';
+          }
+        });
+
+        document.getElementById('header-score').textContent = `${(Number(pr.totalScore) || 0).toLocaleString('vi-VN')} đ`;
+
+        const fb = document.getElementById('q-feedback');
+        const title = document.getElementById('fb-title');
+        fb.classList.remove('hidden', 'bg-emerald-50', 'border-emerald-200', 'bg-red-50', 'border-red-200');
+        if (pr.isRight) {
+          fb.classList.add('bg-emerald-50', 'border-emerald-200');
+          title.className = 'font-extrabold text-emerald-700';
+          title.textContent = `Chính xác! +${pr.earned} điểm (${Number(pr.spent).toFixed(1)}s)`;
+        } else {
+          fb.classList.add('bg-red-50', 'border-red-200');
+          title.className = 'font-extrabold text-red-700';
+          title.textContent = sel === -1
+            ? `Hết giờ! Đáp án đúng là ${OPTION_LABELS[data.correct]}`
+            : `Chưa chính xác! Đáp án đúng là ${OPTION_LABELS[data.correct]}`;
+        }
+        document.getElementById('fb-explain').textContent = data.explanation;
+
+        if (qIdx === questions.length - 1) {
+          document.getElementById('btn-finish-reveal').classList.remove('hidden');
+        } else {
+          document.getElementById('btn-finish-reveal').classList.add('hidden');
+        }
+      } catch (e) {}
+    }
+
+    document.getElementById('btn-finish-early').addEventListener('click', () => submitQuiz());
+    document.getElementById('btn-finish-reveal').addEventListener('click', () => submitQuiz());
 
     function showFinalRank(rank, totalPlayers) {
       const rankEl = document.getElementById('res-rank');
@@ -437,16 +494,13 @@
     async function submitQuiz() {
       if (hasSubmitted) return;
       hasSubmitted = true;
-      clearQuestionTimers();
+      stopQuizLoop();
 
       document.getElementById('step-quiz').classList.add('hidden');
       document.getElementById('step-result').classList.remove('hidden');
 
       document.getElementById('res-name').textContent = player.name;
       document.getElementById('res-mssv').textContent = `MSSV: ${player.mssv}`;
-      document.getElementById('res-score').textContent = score.toLocaleString('vi-VN');
-      document.getElementById('res-correct').textContent = `${correctCount}/${questions.length}`;
-      document.getElementById('res-time').textContent = `${totalTime.toFixed(1)}s`;
 
       const rankEl = document.getElementById('res-rank');
       rankEl.className = 'inline-block px-4 py-2 rounded-xl bg-white/15 border border-white/25 text-blue-100 font-bold text-sm';
@@ -459,13 +513,17 @@
           body: JSON.stringify({
             name: player.name,
             mssv: player.mssv,
-            score,
-            correctCount,
-            totalQuestions: questions.length,
-            totalTime
+            totalQuestions: questions.length
           })
         });
         const data = await res.json();
+        const rec = data.record || { score: 0, correctCount: 0, totalQuestions: questions.length, totalTime: 0 };
+
+        document.getElementById('res-score').textContent = (Number(rec.score) || 0).toLocaleString('vi-VN');
+        document.getElementById('res-correct').textContent = `${rec.correctCount}/${rec.totalQuestions}`;
+        document.getElementById('res-time').textContent = `${Number(rec.totalTime || 0).toFixed(1)}s`;
+        document.getElementById('header-score').textContent = `${(Number(rec.score) || 0).toLocaleString('vi-VN')} đ`;
+
         if (data.finalized) {
           showFinalRank(data.rank, data.totalPlayers);
         } else {

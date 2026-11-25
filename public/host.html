@@ -225,7 +225,7 @@
     </section>
   </main>
 
-  <!-- VIEW 2: HOST LIVE PLAYER-STYLE QUIZ STAGE (LEFT) + LIVE SCORE TOP 10 (RIGHT) -->
+  <!-- VIEW 2: HOST LIVE SYNCHRONIZED QUIZ STAGE (LEFT) + LIVE SCORE TOP 10 (RIGHT) -->
   <main id="host-live-stage" class="hidden flex-1 max-w-[1440px] w-full mx-auto p-4 sm:p-6 lg:p-7 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
     <!-- LEFT COLUMN: ENLARGED QUIZ BLOCK -->
@@ -243,13 +243,16 @@
         </button>
       </div>
 
-      <!-- Player-style Question Header & Progress -->
-      <div class="bg-white text-[#0E2841] rounded-2xl p-5 shadow-md flex items-center justify-between">
+      <!-- Synchronized Question Header & Progress -->
+      <div class="bg-white text-[#0E2841] rounded-2xl p-5 shadow-md flex items-center justify-between gap-3">
         <div>
-          <span id="host-q-counter" class="text-sm font-extrabold text-[#1C79C0]">CÂU 1 / 10</span>
+          <div class="flex items-center gap-2.5">
+            <span id="host-q-counter" class="text-sm font-extrabold text-[#1C79C0]">CÂU 1 / 10</span>
+            <span id="host-q-phase" class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-50 text-[#1C79C0]">ĐANG TRẢ LỜI</span>
+          </div>
           <div id="host-q-section" class="text-xs sm:text-sm text-slate-500 mt-0.5"></div>
         </div>
-        <div class="px-4 py-2 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-2xl text-[#EF8823]" id="host-q-timer">
+        <div class="px-4 py-2 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-2xl text-[#EF8823] shrink-0" id="host-q-timer">
           20.0s
         </div>
       </div>
@@ -258,17 +261,14 @@
         <div id="host-q-bar" class="h-full bg-[#EF8823] transition-all duration-100" style="width: 100%;"></div>
       </div>
 
-      <!-- Player-style Question Card -->
+      <!-- Display-only Question Card (No early answer leak on projector) -->
       <div class="bg-white text-[#0E2841] rounded-2xl p-6 sm:p-8 shadow-xl space-y-5">
         <h2 id="host-q-text" class="text-xl sm:text-2xl lg:text-[26px] font-extrabold text-[#0E2841] leading-snug"></h2>
         <div id="host-q-options" class="space-y-3"></div>
-        <div id="host-q-feedback" class="hidden rounded-xl p-5 border text-sm sm:text-base space-y-2.5">
-          <div id="host-fb-title" class="font-extrabold"></div>
+        <div id="host-q-feedback" class="hidden rounded-xl p-5 border border-emerald-200 bg-emerald-50 text-sm sm:text-base space-y-2">
+          <div id="host-fb-title" class="font-extrabold text-emerald-700"></div>
           <p id="host-fb-explain" class="text-slate-700"></p>
           <div id="host-fb-auto-hint" class="text-xs font-semibold text-slate-500"></div>
-          <button id="host-btn-next" class="w-full py-3 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-base cursor-pointer">
-            Câu tiếp theo →
-          </button>
         </div>
       </div>
     </section>
@@ -281,12 +281,12 @@
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
             <h3 class="text-lg sm:text-xl font-black tracking-tight text-white">LIVE SCORE TẠM THỜI — TOP 10</h3>
           </div>
-          <p class="text-xs text-blue-200 mt-0.5">Điểm tạm thời theo từng câu • Xếp hạng chính thức chốt khi người cuối xong</p>
+          <p class="text-xs text-blue-200 mt-0.5">Cập nhật sau mỗi pha công bố đáp án • Xếp hạng chính thức chốt khi người cuối xong</p>
         </div>
       </div>
 
       <div id="live-score-empty" class="py-12 text-center text-xs text-blue-200/70 bg-[#091C2E]/60 rounded-xl border border-dashed border-white/15">
-        Đang chờ điểm trực tiếp từ các thí sinh...
+        Đang chờ kết quả sau câu hỏi đầu tiên...
       </div>
 
       <div id="live-score-list" class="relative w-full transition-all duration-500" style="height: 0px;"></div>
@@ -296,7 +296,6 @@
 
   <script>
     const OPTION_LABELS = ['A', 'B', 'C', 'D'];
-    const TIME_LIMIT = 20.0;
     const LIVE_ROW_STRIDE = 72;
 
     let urlInitialized = false;
@@ -305,14 +304,14 @@
     let currentSessionStatus = 'WAITING';
     let activeRightTab = 'lobby';
 
-    // Host live quiz state
+    // Synchronized Host live stage state
     let hostQuestions = [];
-    let hostQIdx = 0;
-    let hostTimeLeft = TIME_LIMIT;
-    let hostAnswered = false;
-    let hostQTimer = null;
-    let hostAutoNextTimeout = null;
-    let hostIsTransitioning = false;
+    let hostAnswerDurationSec = 20;
+    let hostRevealDurationSec = 5;
+    let hostLocalStartTs = null;
+    let hostLiveLoop = null;
+    let hostRenderedQIdx = -1;
+    let hostRevealRequestedForQ = false;
     let liveScorePoll = null;
     const liveRowMap = new Map();
 
@@ -679,58 +678,47 @@
       } catch (e) {}
     }
 
-    // ==================== HOST LIVE STAGE (PLAYER-STYLE VIEW) ====================
-    function clearHostQuestionTimers() {
-      if (hostQTimer) {
-        clearInterval(hostQTimer);
-        hostQTimer = null;
-      }
-      if (hostAutoNextTimeout) {
-        clearTimeout(hostAutoNextTimeout);
-        hostAutoNextTimeout = null;
+    // ==================== SYNCHRONIZED HOST LIVE STAGE ====================
+    function stopHostLiveLoop() {
+      if (hostLiveLoop) {
+        clearInterval(hostLiveLoop);
+        hostLiveLoop = null;
       }
     }
 
-    function hostGoNextOrFinish() {
-      if (hostIsTransitioning) return;
-      hostIsTransitioning = true;
-      clearHostQuestionTimers();
-      if (hostQIdx < hostQuestions.length - 1) {
-        hostQIdx += 1;
-        renderHostQuestion();
-      } else {
-        finishHostChallenge();
-      }
-    }
-
-    async function startHostLiveView() {
+    async function startHostLiveView(startedAt, serverNow, answerSec, revealSec) {
       if (hostQuestions.length === 0) {
         const res = await fetch('/api/questions');
         hostQuestions = await res.json();
       }
-      hostQIdx = 0;
-      hostIsTransitioning = false;
+      stopHostLiveLoop();
+      hostAnswerDurationSec = Number(answerSec) || 20;
+      hostRevealDurationSec = Number(revealSec) || 5;
+      const elapsedOnOpenMs = startedAt ? Math.max(0, (serverNow || Date.now()) - startedAt) : 0;
+      hostLocalStartTs = performance.now() - elapsedOnOpenMs;
+      hostRenderedQIdx = -1;
+      hostRevealRequestedForQ = false;
+
       document.getElementById('challenge-finished-banner').classList.add('hidden');
       document.getElementById('host-dashboard').classList.add('hidden');
       document.getElementById('host-live-stage').classList.remove('hidden');
+
       fetchLiveScores();
       if (liveScorePoll) clearInterval(liveScorePoll);
       liveScorePoll = setInterval(fetchLiveScores, 1000);
-      renderHostQuestion();
+
+      tickHostLiveStage();
+      hostLiveLoop = setInterval(tickHostLiveStage, 80);
     }
 
-    function renderHostQuestion() {
-      clearHostQuestionTimers();
-      hostIsTransitioning = false;
-      const q = hostQuestions[hostQIdx];
-      hostAnswered = false;
-      hostTimeLeft = TIME_LIMIT;
+    function renderHostQuestion(qIdx) {
+      hostRenderedQIdx = qIdx;
+      hostRevealRequestedForQ = false;
+      const q = hostQuestions[qIdx];
 
-      document.getElementById('host-q-counter').textContent = `CÂU ${hostQIdx + 1} / ${hostQuestions.length}`;
+      document.getElementById('host-q-counter').textContent = `CÂU ${qIdx + 1} / ${hostQuestions.length}`;
       document.getElementById('host-q-section').textContent = `${q.section} (${q.slide})`;
       document.getElementById('host-q-text').textContent = q.question;
-      document.getElementById('host-q-timer').textContent = `${TIME_LIMIT.toFixed(1)}s`;
-      document.getElementById('host-q-bar').style.width = '100%';
       document.getElementById('host-q-feedback').classList.add('hidden');
       document.getElementById('host-fb-auto-hint').textContent = '';
 
@@ -739,113 +727,102 @@
       q.options.forEach((opt, idx) => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'w-full text-left p-4 sm:p-5 rounded-xl border-2 border-slate-200 bg-slate-50 hover:border-[#1C79C0] active:scale-[0.99] flex items-start gap-3.5 transition cursor-pointer';
+        btn.disabled = true;
+        btn.className = 'w-full text-left p-4 sm:p-5 rounded-xl border-2 border-slate-200 bg-slate-50 flex items-start gap-3.5 cursor-default';
         btn.innerHTML = `
           <span class="shrink-0 w-9 h-9 rounded-lg bg-[#1C79C0] text-white font-black text-sm flex items-center justify-center">${OPTION_LABELS[idx]}</span>
           <span class="text-base sm:text-lg font-semibold text-[#0E2841] pt-0.5">${escapeHtml(opt)}</span>
         `;
-        btn.addEventListener('click', () => pickHostAnswer(idx));
         opts.appendChild(btn);
       });
-
-      const startTs = performance.now();
-      hostQTimer = setInterval(() => {
-        const elapsed = (performance.now() - startTs) / 1000;
-        hostTimeLeft = Math.max(0, TIME_LIMIT - elapsed);
-        document.getElementById('host-q-timer').textContent = `${hostTimeLeft.toFixed(1)}s`;
-        document.getElementById('host-q-bar').style.width = `${(hostTimeLeft / TIME_LIMIT) * 100}%`;
-
-        if (hostAnswered) {
-          const isLast = hostQIdx === hostQuestions.length - 1;
-          document.getElementById('host-fb-auto-hint').textContent = isLast
-            ? `Bấm "Hoàn thành" để kết thúc ngay, hoặc tự động quay lại màn hình Host sau ${hostTimeLeft.toFixed(1)}s`
-            : `Tự động chuyển câu tiếp theo sau ${hostTimeLeft.toFixed(1)}s`;
-        }
-
-        if (hostTimeLeft <= 0) {
-          clearInterval(hostQTimer);
-          hostQTimer = null;
-          if (hostAnswered) {
-            hostGoNextOrFinish();
-          } else {
-            pickHostAnswer(-1);
-          }
-        }
-      }, 80);
     }
 
-    function pickHostAnswer(sel) {
-      if (hostAnswered) return;
-      hostAnswered = true;
+    function tickHostLiveStage() {
+      if (!hostQuestions.length || hostLocalStartTs === null) return;
 
-      if (sel === -1 || hostTimeLeft <= 0) {
-        if (hostQTimer) {
-          clearInterval(hostQTimer);
-          hostQTimer = null;
+      const cycleSec = hostAnswerDurationSec + hostRevealDurationSec;
+      const elapsedSec = Math.max(0, (performance.now() - hostLocalStartTs) / 1000);
+      const totalDuration = hostQuestions.length * cycleSec;
+
+      if (elapsedSec >= totalDuration) {
+        finishHostChallenge();
+        return;
+      }
+
+      const qIdx = Math.floor(elapsedSec / cycleSec);
+      const inQ = elapsedSec - qIdx * cycleSec;
+
+      if (qIdx !== hostRenderedQIdx) {
+        renderHostQuestion(qIdx);
+      }
+
+      const phaseEl = document.getElementById('host-q-phase');
+      const timerEl = document.getElementById('host-q-timer');
+      const barEl = document.getElementById('host-q-bar');
+
+      if (inQ < hostAnswerDurationSec) {
+        const rem = Math.max(0, hostAnswerDurationSec - inQ);
+        phaseEl.textContent = 'ĐANG TRẢ LỜI';
+        phaseEl.className = 'px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-50 text-[#1C79C0]';
+        timerEl.textContent = `${rem.toFixed(1)}s`;
+        timerEl.className = 'px-4 py-2 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-2xl text-[#EF8823] shrink-0';
+        barEl.className = 'h-full bg-[#EF8823] transition-all duration-100';
+        barEl.style.width = `${(rem / hostAnswerDurationSec) * 100}%`;
+      } else {
+        const remReveal = Math.max(0, cycleSec - inQ);
+        phaseEl.textContent = 'CÔNG BỐ ĐÁP ÁN';
+        phaseEl.className = 'px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-emerald-50 text-emerald-700';
+        timerEl.textContent = `Công bố: ${remReveal.toFixed(1)}s`;
+        timerEl.className = 'px-4 py-2 rounded-xl bg-emerald-50 border border-emerald-200 font-mono font-black text-xl text-emerald-700 shrink-0';
+        barEl.className = 'h-full bg-[#00B050] transition-all duration-100';
+        barEl.style.width = `${(remReveal / hostRevealDurationSec) * 100}%`;
+
+        if (!hostRevealRequestedForQ) {
+          hostRevealRequestedForQ = true;
+          fetchAndShowHostReveal(qIdx);
         }
+
+        const isLast = qIdx === hostQuestions.length - 1;
+        document.getElementById('host-fb-auto-hint').textContent = isLast
+          ? `Tự động quay lại màn hình Host sau ${remReveal.toFixed(1)}s...`
+          : `Tự động chuyển sang câu tiếp theo sau ${remReveal.toFixed(1)}s...`;
       }
+    }
 
-      const q = hostQuestions[hostQIdx];
-      const spent = Math.min(TIME_LIMIT, Math.max(0.1, TIME_LIMIT - hostTimeLeft));
-      const isRight = sel === q.correct;
-      const isLast = hostQIdx === hostQuestions.length - 1;
-
-      const btns = document.querySelectorAll('#host-q-options button');
-      btns.forEach((b, idx) => {
-        b.disabled = true;
-        if (idx === q.correct) {
-          b.className = 'w-full text-left p-4 sm:p-5 rounded-xl border-2 border-[#00B050] bg-emerald-50 flex items-start gap-3.5';
-        } else if (idx === sel) {
-          b.className = 'w-full text-left p-4 sm:p-5 rounded-xl border-2 border-red-500 bg-red-50 flex items-start gap-3.5';
-        } else {
-          b.classList.add('opacity-50');
+    async function fetchAndShowHostReveal(qIdx, attempt = 0) {
+      try {
+        const res = await fetch(`/api/reveal/${qIdx}`);
+        if (res.status === 403 && attempt < 4) {
+          setTimeout(() => {
+            if (hostRenderedQIdx === qIdx) {
+              fetchAndShowHostReveal(qIdx, attempt + 1);
+            }
+          }, 250);
+          return;
         }
-      });
+        if (!res.ok || hostRenderedQIdx !== qIdx) return;
 
-      const fb = document.getElementById('host-q-feedback');
-      const title = document.getElementById('host-fb-title');
-      fb.classList.remove('hidden', 'bg-emerald-50', 'border-emerald-200', 'bg-red-50', 'border-red-200', 'bg-blue-50', 'border-blue-200');
-      if (sel === -1) {
-        fb.classList.add('bg-blue-50', 'border-blue-200');
-        title.className = 'font-extrabold text-[#1C79C0]';
-        title.textContent = `Hết giờ! Đáp án đúng là ${OPTION_LABELS[q.correct]}`;
-      } else if (isRight) {
-        fb.classList.add('bg-emerald-50', 'border-emerald-200');
-        title.className = 'font-extrabold text-emerald-700';
-        title.textContent = `Chính xác! Đáp án ${OPTION_LABELS[q.correct]} (${spent.toFixed(1)}s)`;
-      } else {
-        fb.classList.add('bg-red-50', 'border-red-200');
-        title.className = 'font-extrabold text-red-700';
-        title.textContent = `Chưa chính xác! Đáp án đúng là ${OPTION_LABELS[q.correct]}`;
-      }
-      document.getElementById('host-fb-explain').textContent = q.explanation;
+        const data = await res.json();
+        const btns = document.querySelectorAll('#host-q-options button');
+        btns.forEach((b, idx) => {
+          if (idx === data.correct) {
+            b.className = 'w-full text-left p-4 sm:p-5 rounded-xl border-2 border-[#00B050] bg-emerald-50 flex items-start gap-3.5';
+          } else {
+            b.className = 'w-full text-left p-4 sm:p-5 rounded-xl border-2 border-slate-200 bg-slate-50 opacity-50 flex items-start gap-3.5';
+          }
+        });
 
-      const btnNext = document.getElementById('host-btn-next');
-      if (!isLast) {
-        btnNext.textContent = 'Câu tiếp theo →';
-        btnNext.className = 'w-full py-3 rounded-xl bg-[#1C79C0] hover:bg-blue-700 text-white font-bold text-base cursor-pointer';
-      } else {
-        btnNext.textContent = 'Hoàn thành';
-        btnNext.className = 'w-full py-3 rounded-xl bg-[#00B050] hover:bg-emerald-600 text-white font-bold text-base cursor-pointer';
-      }
+        document.getElementById('host-fb-title').textContent = `Đáp án đúng là ${OPTION_LABELS[data.correct]}`;
+        document.getElementById('host-fb-explain').textContent = data.explanation;
+        document.getElementById('host-q-feedback').classList.remove('hidden');
 
-      const autoHint = document.getElementById('host-fb-auto-hint');
-      if (sel === -1) {
-        autoHint.textContent = isLast
-          ? 'Hết giờ! Đang quay lại màn hình Host để xem bảng xếp hạng...'
-          : 'Hết giờ! Đang tự động chuyển sang câu tiếp theo...';
-        hostAutoNextTimeout = setTimeout(() => hostGoNextOrFinish(), 1500);
-      } else if (hostTimeLeft <= 0) {
-        hostGoNextOrFinish();
-      } else {
-        autoHint.textContent = isLast
-          ? `Bấm "Hoàn thành" để kết thúc ngay, hoặc tự động quay lại màn hình Host sau ${hostTimeLeft.toFixed(1)}s`
-          : `Tự động chuyển câu tiếp theo sau ${hostTimeLeft.toFixed(1)}s`;
-      }
+        // Cập nhật ngay Live Score Top 10 khi hết giờ câu hỏi để trượt thứ hạng mượt mà
+        fetchLiveScores();
+      } catch (e) {}
     }
 
     function exitHostLiveView(showFinishedBanner) {
-      clearHostQuestionTimers();
+      stopHostLiveLoop();
       if (liveScorePoll) {
         clearInterval(liveScorePoll);
         liveScorePoll = null;
@@ -865,23 +842,24 @@
 
     async function startChallenge() {
       if (currentSessionStatus === 'FINISHED') return;
+      let timing = null;
       if (currentSessionStatus !== 'LIVE') {
         if (currentRegisteredCount === 0) {
           const ok = confirm('Chưa có sinh viên nào vào phòng chờ. Bạn vẫn muốn bắt đầu thử thách ngay?');
           if (!ok) return;
         }
-        await fetch('/api/session/start-challenge', { method: 'POST' });
+        const res = await fetch('/api/session/start-challenge', { method: 'POST' });
+        timing = await res.json();
         await fetchSession();
+      } else {
+        const res = await fetch('/api/session?lite=1');
+        timing = await res.json();
       }
-      await startHostLiveView();
+      await startHostLiveView(timing.startedAt, timing.serverNow, timing.answerDurationSec, timing.revealDurationSec);
     }
 
     document.getElementById('btn-start-challenge').addEventListener('click', startChallenge);
     document.getElementById('btn-start-challenge-main').addEventListener('click', startChallenge);
-
-    document.getElementById('host-btn-next').addEventListener('click', () => {
-      hostGoNextOrFinish();
-    });
 
     document.getElementById('btn-exit-live').addEventListener('click', () => {
       exitHostLiveView(false);
@@ -921,7 +899,7 @@
 
     document.getElementById('btn-reset').addEventListener('click', async () => {
       if (!confirm('Xóa toàn bộ danh sách sinh viên và bảng xếp hạng của phiên này để mở phòng chờ mới?')) return;
-      clearHostQuestionTimers();
+      stopHostLiveLoop();
       if (liveScorePoll) {
         clearInterval(liveScorePoll);
         liveScorePoll = null;

@@ -7,6 +7,9 @@ const path = require('path');
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
+const ANSWER_DURATION_SEC = Number(process.env.ANSWER_DURATION_SEC) || 20;
+const REVEAL_DURATION_SEC = Number(process.env.REVEAL_DURATION_SEC) || 5;
+const QUESTION_CYCLE_SEC = ANSWER_DURATION_SEC + REVEAL_DURATION_SEC;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -182,18 +185,15 @@ const QUIZ_QUESTIONS = [
 
 // ==================== SESSION & LOBBY STATE ====================
 let results = loadResults();
-let liveScores = new Map();
-for (const r of results) {
-  liveScores.set(r.mssv, {
+let playerProgress = new Map();
+for (const [idx, r] of results.entries()) {
+  playerProgress.set(r.mssv, {
     name: r.name,
     mssv: r.mssv,
-    score: r.score,
-    correctCount: r.correctCount,
-    answeredCount: r.totalQuestions,
-    totalQuestions: r.totalQuestions,
-    totalTime: r.totalTime,
-    finished: true,
-    updatedAt: r.finishedAt
+    joinedOrder: idx + 1,
+    answers: new Map(),
+    submitted: true,
+    finalRecord: r
   });
 }
 let registeredPlayers = []; // { id, name, mssv, joinedAt }
@@ -295,6 +295,145 @@ function sortLiveScores(list) {
   });
 }
 
+function getQuizClock(now = Date.now()) {
+  if (session.status === 'WAITING' || !session.startedAt) {
+    return {
+      phase: 'WAITING',
+      questionIndex: -1,
+      phaseRemainingSec: 0,
+      elapsedSec: 0,
+      answerDurationSec: ANSWER_DURATION_SEC,
+      revealDurationSec: REVEAL_DURATION_SEC,
+      totalQuestions: QUIZ_QUESTIONS.length
+    };
+  }
+  if (session.status === 'FINISHED') {
+    return {
+      phase: 'ENDED',
+      questionIndex: QUIZ_QUESTIONS.length - 1,
+      phaseRemainingSec: 0,
+      elapsedSec: QUIZ_QUESTIONS.length * QUESTION_CYCLE_SEC,
+      answerDurationSec: ANSWER_DURATION_SEC,
+      revealDurationSec: REVEAL_DURATION_SEC,
+      totalQuestions: QUIZ_QUESTIONS.length
+    };
+  }
+  const elapsedSec = Math.max(0, (now - session.startedAt) / 1000);
+  const totalSec = QUIZ_QUESTIONS.length * QUESTION_CYCLE_SEC;
+  if (elapsedSec >= totalSec) {
+    return {
+      phase: 'ENDED',
+      questionIndex: QUIZ_QUESTIONS.length - 1,
+      phaseRemainingSec: 0,
+      elapsedSec,
+      answerDurationSec: ANSWER_DURATION_SEC,
+      revealDurationSec: REVEAL_DURATION_SEC,
+      totalQuestions: QUIZ_QUESTIONS.length
+    };
+  }
+  const qIdx = Math.floor(elapsedSec / QUESTION_CYCLE_SEC);
+  const inQ = elapsedSec - qIdx * QUESTION_CYCLE_SEC;
+  if (inQ < ANSWER_DURATION_SEC) {
+    return {
+      phase: 'ANSWER',
+      questionIndex: qIdx,
+      phaseRemainingSec: Number((ANSWER_DURATION_SEC - inQ).toFixed(1)),
+      elapsedSec,
+      answerDurationSec: ANSWER_DURATION_SEC,
+      revealDurationSec: REVEAL_DURATION_SEC,
+      totalQuestions: QUIZ_QUESTIONS.length
+    };
+  }
+  return {
+    phase: 'REVEAL',
+    questionIndex: qIdx,
+    phaseRemainingSec: Number((QUESTION_CYCLE_SEC - inQ).toFixed(1)),
+    elapsedSec,
+    answerDurationSec: ANSWER_DURATION_SEC,
+    revealDurationSec: REVEAL_DURATION_SEC,
+    totalQuestions: QUIZ_QUESTIONS.length
+  };
+}
+
+function isQuestionRevealable(qIdx, now = Date.now()) {
+  if (session.status === 'FINISHED') return true;
+  if (session.status !== 'LIVE' || !session.startedAt) return false;
+  const revealAtMs = session.startedAt + (qIdx * QUESTION_CYCLE_SEC + ANSWER_DURATION_SEC) * 1000;
+  return now + 250 >= revealAtMs;
+}
+
+function getMaxRevealedIndex(clock) {
+  if (session.status === 'FINISHED' || clock.phase === 'ENDED') {
+    return QUIZ_QUESTIONS.length - 1;
+  }
+  if (clock.phase === 'REVEAL') {
+    return clock.questionIndex;
+  }
+  if (clock.phase === 'ANSWER') {
+    return clock.questionIndex - 1;
+  }
+  return -1;
+}
+
+function computeTotalsUpTo(state, maxQIdx) {
+  if (!state) {
+    return { score: 0, correctCount: 0, answeredCount: 0, totalTime: 0 };
+  }
+  if (state.finalRecord && maxQIdx >= QUIZ_QUESTIONS.length - 1 && state.answers.size === 0) {
+    return {
+      score: state.finalRecord.score,
+      correctCount: state.finalRecord.correctCount,
+      answeredCount: state.finalRecord.totalQuestions,
+      totalTime: state.finalRecord.totalTime
+    };
+  }
+  if (maxQIdx < 0) {
+    return { score: 0, correctCount: 0, answeredCount: 0, totalTime: 0 };
+  }
+  const limit = Math.min(maxQIdx, QUIZ_QUESTIONS.length - 1);
+  let score = 0;
+  let correctCount = 0;
+  let answeredCount = 0;
+  let totalTime = 0;
+  for (let i = 0; i <= limit; i += 1) {
+    const ans = state.answers.get(i);
+    if (ans) {
+      score += ans.earned;
+      if (ans.isRight) correctCount += 1;
+      answeredCount += 1;
+      totalTime += ans.spent;
+    } else {
+      totalTime += ANSWER_DURATION_SEC;
+    }
+  }
+  return {
+    score,
+    correctCount,
+    answeredCount,
+    totalTime: Number(totalTime.toFixed(2))
+  };
+}
+
+function ensurePlayerProgress(name, mssv) {
+  const cleanMssv = String(mssv || '').trim().toUpperCase();
+  const cleanName = String(name || '').trim();
+  let state = playerProgress.get(cleanMssv);
+  if (!state) {
+    state = {
+      name: cleanName,
+      mssv: cleanMssv,
+      joinedOrder: registeredPlayers.length + 1,
+      answers: new Map(),
+      submitted: false,
+      finalRecord: null
+    };
+    playerProgress.set(cleanMssv, state);
+  } else if (cleanName) {
+    state.name = cleanName;
+  }
+  return state;
+}
+
 function checkAutoFinalize() {
   if (session.status !== 'LIVE' || registeredPlayers.length === 0) return false;
   const submittedSet = new Set(results.map(r => r.mssv));
@@ -324,15 +463,22 @@ app.get('/healthz', (req, res) => {
   res.json({ ok: true, status: session.status });
 });
 
-// Lấy thông tin phiên + QR Code DataURL
+// Lấy thông tin phiên + QR Code DataURL + đồng hồ đồng bộ
 app.get('/api/session', async (req, res) => {
   checkAutoFinalize();
+  const now = Date.now();
+  const clock = getQuizClock(now);
 
   if (req.query.lite === '1') {
     return res.json({
       sessionId: session.sessionId,
       status: session.status,
       finalized: session.status === 'FINISHED',
+      serverNow: now,
+      startedAt: session.startedAt,
+      answerDurationSec: ANSWER_DURATION_SEC,
+      revealDurationSec: REVEAL_DURATION_SEC,
+      clock,
       completedCount: results.length,
       registeredCount: registeredPlayers.length
     });
@@ -354,8 +500,12 @@ app.get('/api/session', async (req, res) => {
       sessionId: session.sessionId,
       status: session.status,
       finalized: session.status === 'FINISHED',
+      serverNow: now,
       startedAt: session.startedAt,
       finishedAt: session.finishedAt,
+      answerDurationSec: ANSWER_DURATION_SEC,
+      revealDurationSec: REVEAL_DURATION_SEC,
+      clock,
       playUrl,
       customBaseUrl: session.customBaseUrl,
       lanUrl: `http://${getLocalIPv4()}:${PORT}/play`,
@@ -376,12 +526,18 @@ app.post('/api/session/url', (req, res) => {
 });
 
 function handleStartChallenge(req, res) {
+  const now = Date.now();
   session.status = 'LIVE';
+  session.startedAt = now;
   session.finishedAt = null;
-  if (!session.startedAt) {
-    session.startedAt = Date.now();
-  }
-  res.json({ ok: true, status: session.status, startedAt: session.startedAt });
+  res.json({
+    ok: true,
+    status: session.status,
+    startedAt: session.startedAt,
+    serverNow: now,
+    answerDurationSec: ANSWER_DURATION_SEC,
+    revealDurationSec: REVEAL_DURATION_SEC
+  });
 }
 
 // Host bấm "Bắt đầu thử thách" cho toàn bộ sinh viên trong phòng chờ cùng làm bài
@@ -400,22 +556,23 @@ app.post('/api/session/open-lobby', (req, res) => {
 app.post('/api/session/finalize', (req, res) => {
   const submittedSet = new Set(results.map(r => r.mssv));
   let promoted = false;
-  for (const live of liveScores.values()) {
-    if (!submittedSet.has(live.mssv) && live.answeredCount > 0) {
+  for (const state of playerProgress.values()) {
+    if (!submittedSet.has(state.mssv) && state.answers.size > 0) {
+      const totals = computeTotalsUpTo(state, QUIZ_QUESTIONS.length - 1);
       const record = {
         id: 'res_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-        name: live.name,
-        mssv: live.mssv,
-        score: Number(live.score) || 0,
-        correctCount: Number(live.correctCount) || 0,
-        totalQuestions: Number(live.totalQuestions) || QUIZ_QUESTIONS.length,
-        totalTime: Number(Number(live.totalTime || 0).toFixed(2)),
+        name: state.name,
+        mssv: state.mssv,
+        score: totals.score,
+        correctCount: totals.correctCount,
+        totalQuestions: QUIZ_QUESTIONS.length,
+        totalTime: totals.totalTime,
         finishedAt: new Date().toISOString()
       };
       results.push(record);
-      submittedSet.add(live.mssv);
-      live.finished = true;
-      live.updatedAt = record.finishedAt;
+      submittedSet.add(state.mssv);
+      state.submitted = true;
+      state.finalRecord = record;
       promoted = true;
     }
   }
@@ -433,9 +590,16 @@ app.post('/api/session/finalize', (req, res) => {
   });
 });
 
-// Lấy danh sách câu hỏi cho sinh viên
+// Lấy danh sách câu hỏi cho sinh viên (ẨN hoàn toàn correct và explanation chống F12/DevTools)
 app.get('/api/questions', (req, res) => {
-  res.json(QUIZ_QUESTIONS);
+  const safeQuestions = QUIZ_QUESTIONS.map(({ id, section, slide, question, options }) => ({
+    id,
+    section,
+    slide,
+    question,
+    options
+  }));
+  res.json(safeQuestions);
 });
 
 // Sinh viên đăng ký sau khi quét QR
@@ -463,56 +627,111 @@ app.post('/api/register', (req, res) => {
     player.name = name;
   }
 
-  const existingLive = liveScores.get(mssv);
-  if (!existingLive) {
-    liveScores.set(mssv, {
-      name,
-      mssv,
-      score: 0,
-      correctCount: 0,
-      answeredCount: 0,
-      totalQuestions: QUIZ_QUESTIONS.length,
-      totalTime: 0,
-      finished: false,
-      joinedOrder: registeredPlayers.length,
-      updatedAt: new Date().toISOString()
-    });
-  } else {
-    existingLive.name = name;
-  }
+  ensurePlayerProgress(name, mssv);
 
   res.json({
     ok: true,
     player,
     sessionStatus: session.status,
+    startedAt: session.startedAt,
+    serverNow: Date.now(),
+    answerDurationSec: ANSWER_DURATION_SEC,
+    revealDurationSec: REVEAL_DURATION_SEC,
     registeredCount: registeredPlayers.length
   });
 });
 
-// Cập nhật điểm trực tiếp sau mỗi câu hỏi cho bảng Live Score Top 10
-app.post('/api/progress', (req, res) => {
-  const { name, mssv, score, correctCount, answeredCount, totalQuestions, totalTime } = req.body;
-  if (!name || !mssv) {
-    return res.status(400).json({ error: 'Thiếu thông tin sinh viên.' });
+// Pha 1: Ghi nhận lựa chọn trung tính (KHÔNG trả đáp án đúng/sai hay điểm để chống nhìn bài)
+app.post('/api/answer', (req, res) => {
+  if (session.status !== 'LIVE' || !session.startedAt) {
+    return res.status(400).json({ error: 'Phiên thi chưa bắt đầu hoặc đã kết thúc.' });
   }
-  const cleanMssv = String(mssv).trim().toUpperCase();
-  const prev = liveScores.get(cleanMssv);
-  liveScores.set(cleanMssv, {
-    name: String(name).trim(),
-    mssv: cleanMssv,
-    score: Number(score) || 0,
-    correctCount: Number(correctCount) || 0,
-    answeredCount: Number(answeredCount) || 0,
-    totalQuestions: Number(totalQuestions) || QUIZ_QUESTIONS.length,
-    totalTime: Number(Number(totalTime || 0).toFixed(2)),
-    finished: false,
-    joinedOrder: prev ? prev.joinedOrder : registeredPlayers.length + 1,
-    updatedAt: new Date().toISOString()
+
+  const name = String(req.body.name || '').trim();
+  const mssv = String(req.body.mssv || '').trim().toUpperCase();
+  const qIdx = Number(req.body.questionIndex);
+  const sel = Number(req.body.selected);
+
+  if (!name || !mssv || !Number.isInteger(qIdx) || qIdx < 0 || qIdx >= QUIZ_QUESTIONS.length) {
+    return res.status(400).json({ error: 'Thông tin câu trả lời không hợp lệ.' });
+  }
+  const q = QUIZ_QUESTIONS[qIdx];
+  if (!Number.isInteger(sel) || sel < 0 || sel >= q.options.length) {
+    return res.status(400).json({ error: 'Phương án chọn không hợp lệ.' });
+  }
+
+  const clock = getQuizClock(Date.now());
+  const qStart = qIdx * QUESTION_CYCLE_SEC;
+  const qAnswerEnd = qStart + ANSWER_DURATION_SEC;
+  if (clock.elapsedSec < qStart - 0.5 || clock.elapsedSec > qAnswerEnd + 1.0) {
+    return res.status(400).json({ error: 'Hết thời gian trả lời câu hỏi này.' });
+  }
+
+  const state = ensurePlayerProgress(name, mssv);
+  if (state.answers.has(qIdx)) {
+    const prev = state.answers.get(qIdx);
+    return res.json({
+      ok: true,
+      alreadyAnswered: true,
+      questionIndex: qIdx,
+      selected: prev.selected,
+      spent: prev.spent
+    });
+  }
+
+  const spent = Number(Math.min(ANSWER_DURATION_SEC, Math.max(0.1, clock.elapsedSec - qStart)).toFixed(2));
+  const timeLeft = Math.max(0, ANSWER_DURATION_SEC - spent);
+  const isRight = sel === q.correct;
+  const earned = isRight ? 500 + Math.round((timeLeft / ANSWER_DURATION_SEC) * 500) : 0;
+
+  state.answers.set(qIdx, { selected: sel, spent, isRight, earned });
+
+  res.json({
+    ok: true,
+    questionIndex: qIdx,
+    selected: sel,
+    spent
   });
-  res.json({ ok: true });
 });
 
-// Sinh viên nộp kết quả Quiz
+// Pha 2: Công bố đáp án & giải thích (CHỈ mở sau khi Pha Trả Lời 20s của câu hỏi kết thúc)
+app.get('/api/reveal/:qIdx', (req, res) => {
+  const qIdx = Number(req.params.qIdx);
+  if (!Number.isInteger(qIdx) || qIdx < 0 || qIdx >= QUIZ_QUESTIONS.length) {
+    return res.status(400).json({ error: 'Chỉ số câu hỏi không hợp lệ.' });
+  }
+  if (!isQuestionRevealable(qIdx)) {
+    return res.status(403).json({ error: 'Chưa hết thời gian trả lời, chưa thể công bố đáp án.' });
+  }
+
+  const q = QUIZ_QUESTIONS[qIdx];
+  const cleanMssv = String(req.query.mssv || '').trim().toUpperCase();
+  let playerResult = null;
+  if (cleanMssv) {
+    const state = playerProgress.get(cleanMssv);
+    const totals = computeTotalsUpTo(state, qIdx);
+    const ans = state ? state.answers.get(qIdx) : null;
+    playerResult = {
+      selected: ans ? ans.selected : -1,
+      spent: ans ? ans.spent : ANSWER_DURATION_SEC,
+      isRight: ans ? ans.isRight : false,
+      earned: ans ? ans.earned : 0,
+      totalScore: totals.score,
+      correctCount: totals.correctCount,
+      totalTime: totals.totalTime
+    };
+  }
+
+  res.json({
+    ok: true,
+    questionIndex: qIdx,
+    correct: q.correct,
+    explanation: q.explanation,
+    playerResult
+  });
+});
+
+// Sinh viên nộp kết quả Quiz (tính điểm chuẩn xác ở server)
 app.post('/api/submit', (req, res) => {
   const { name, mssv, score, correctCount, totalQuestions, totalTime } = req.body;
   if (!name || !mssv) {
@@ -520,14 +739,24 @@ app.post('/api/submit', (req, res) => {
   }
 
   const cleanMssv = String(mssv).trim().toUpperCase();
+  const state = ensurePlayerProgress(name, cleanMssv);
+  const hasServerAnswers = state.answers.size > 0;
+  const totals = hasServerAnswers
+    ? computeTotalsUpTo(state, QUIZ_QUESTIONS.length - 1)
+    : {
+        score: Number(score) || 0,
+        correctCount: Number(correctCount) || 0,
+        totalTime: Number(Number(totalTime || 0).toFixed(2))
+      };
+
   const record = {
     id: 'res_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
     name: String(name).trim(),
     mssv: cleanMssv,
-    score: Number(score) || 0,
-    correctCount: Number(correctCount) || 0,
+    score: totals.score,
+    correctCount: totals.correctCount,
     totalQuestions: Number(totalQuestions) || QUIZ_QUESTIONS.length,
-    totalTime: Number(Number(totalTime || 0).toFixed(2)),
+    totalTime: totals.totalTime,
     finishedAt: new Date().toISOString()
   };
 
@@ -545,19 +774,8 @@ app.post('/api/submit', (req, res) => {
   }
 
   const saved = existingIdx >= 0 ? results[existingIdx] : record;
-  const prevLive = liveScores.get(cleanMssv);
-  liveScores.set(cleanMssv, {
-    name: saved.name,
-    mssv: saved.mssv,
-    score: saved.score,
-    correctCount: saved.correctCount,
-    answeredCount: saved.totalQuestions,
-    totalQuestions: saved.totalQuestions,
-    totalTime: saved.totalTime,
-    finished: true,
-    joinedOrder: prevLive ? prevLive.joinedOrder : registeredPlayers.length + 1,
-    updatedAt: saved.finishedAt
-  });
+  state.submitted = true;
+  state.finalRecord = saved;
 
   saveResults(results);
   checkAutoFinalize();
@@ -595,9 +813,24 @@ app.get('/api/my-rank', (req, res) => {
   });
 });
 
-// Lấy bảng Live Score tạm thời Top 10 người chơi điểm cao nhất
+// Lấy bảng Live Score tạm thời Top 10 (CHỈ tính các câu đã qua Pha Công Bố để không lộ đáp án)
 app.get('/api/live-scores', (req, res) => {
-  const top10 = sortLiveScores(Array.from(liveScores.values())).slice(0, 10);
+  const maxIdx = getMaxRevealedIndex(getQuizClock(Date.now()));
+  const list = Array.from(playerProgress.values()).map(state => {
+    const totals = computeTotalsUpTo(state, maxIdx);
+    return {
+      name: state.name,
+      mssv: state.mssv,
+      score: totals.score,
+      correctCount: totals.correctCount,
+      answeredCount: totals.answeredCount,
+      totalQuestions: QUIZ_QUESTIONS.length,
+      totalTime: totals.totalTime,
+      finished: state.submitted,
+      joinedOrder: state.joinedOrder
+    };
+  });
+  const top10 = sortLiveScores(list).slice(0, 10);
   res.json(top10);
 });
 
@@ -637,7 +870,7 @@ app.get('/api/export-csv', (req, res) => {
 // Reset phiên & xóa dữ liệu
 app.post('/api/reset', (req, res) => {
   results = [];
-  liveScores.clear();
+  playerProgress.clear();
   registeredPlayers = [];
   session.sessionId = 'ses_' + Date.now();
   session.status = 'WAITING';

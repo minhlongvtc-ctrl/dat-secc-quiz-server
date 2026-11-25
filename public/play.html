@@ -81,12 +81,12 @@
         <div>
           <div class="flex items-center gap-2">
             <span id="q-counter" class="text-xs font-extrabold text-[#1C79C0]">CÂU 1 / 10</span>
-            <span id="q-phase" class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 text-[#1C79C0]">Đang trả lời</span>
+            <span id="q-phase" class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-50 text-[#1C79C0]">Chuẩn bị</span>
           </div>
           <div id="q-section" class="text-[11px] text-slate-500 mt-0.5"></div>
         </div>
         <div class="px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-base text-[#EF8823] shrink-0" id="q-timer">
-          20.0s
+          3.0s
         </div>
       </div>
 
@@ -94,7 +94,17 @@
         <div id="q-bar" class="h-full bg-[#1C79C0] transition-all duration-100" style="width: 100%;"></div>
       </div>
 
-      <div class="bg-white rounded-2xl p-5 shadow-md border border-slate-200 space-y-4">
+      <!-- Synchronized 3-2-1 Prepare Lead-in Box -->
+      <div id="q-prepare-box" class="bg-white rounded-2xl p-8 shadow-md border border-slate-200 text-center space-y-3">
+        <div class="inline-block px-3 py-1 rounded-full bg-orange-50 border border-orange-200 text-[#EF8823] text-xs font-extrabold">
+          ĐỒNG BỘ CÙNG MÀN HÌNH CHÍNH
+        </div>
+        <h2 class="text-xl font-black text-[#0E2841]">SẴN SÀNG! BẮT ĐẦU CÂU 1 SAU</h2>
+        <div id="q-prepare-count" class="text-6xl font-mono font-black text-[#EF8823]">3</div>
+        <p class="text-xs text-slate-500">Chuẩn bị chọn đáp án thật nhanh và chính xác!</p>
+      </div>
+
+      <div id="q-question-card" class="hidden bg-white rounded-2xl p-5 shadow-md border border-slate-200 space-y-4">
         <h2 id="q-text" class="text-base sm:text-lg font-extrabold text-[#0E2841] leading-snug"></h2>
         <div id="q-options" class="space-y-2.5"></div>
 
@@ -153,10 +163,12 @@
 
     let questions = [];
     let player = null;
+    let prepareDurationSec = 3;
     let answerDurationSec = 20;
     let revealDurationSec = 5;
     let localStartTs = null;
     let quizLoop = null;
+    let playerClockSyncPoll = null;
     let renderedQIdx = -1;
     let selectedOption = -1;
     let selectedSpent = 0;
@@ -174,6 +186,40 @@
         clearInterval(quizLoop);
         quizLoop = null;
       }
+      if (playerClockSyncPoll) {
+        clearInterval(playerClockSyncPoll);
+        playerClockSyncPoll = null;
+      }
+    }
+
+    function syncPlayerLocalStartTs(startedAt, serverNow, t0, t1, force = false) {
+      if (!startedAt || !serverNow) return;
+      const oneWay = (t1 - t0) / 2;
+      const candidate = (t1 - oneWay) - (serverNow - startedAt);
+      if (force || localStartTs === null || Math.abs(candidate - localStartTs) > 120) {
+        localStartTs = candidate;
+      }
+    }
+
+    async function pollPlayerClockSync() {
+      if (hasSubmitted) return;
+      try {
+        const t0 = performance.now();
+        const res = await fetch('/api/clock');
+        const t1 = performance.now();
+        if (!res.ok) return;
+        const c = await res.json();
+        if (c.status === 'FINISHED') {
+          submitQuiz();
+          return;
+        }
+        if (c.status === 'LIVE' && c.startedAt) {
+          prepareDurationSec = Number(c.prepareDurationSec) || prepareDurationSec;
+          answerDurationSec = Number(c.answerDurationSec) || answerDurationSec;
+          revealDurationSec = Number(c.revealDurationSec) || revealDurationSec;
+          syncPlayerLocalStartTs(c.startedAt, c.serverNow, t0, t1, false);
+        }
+      } catch (e) {}
     }
 
     async function loadQuestions() {
@@ -188,11 +234,13 @@
       const errEl = document.getElementById('reg-error');
       errEl.classList.add('hidden');
 
+      const t0 = performance.now();
       const res = await fetch('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, mssv })
       });
+      const t1 = performance.now();
       const data = await res.json();
       if (!res.ok) {
         errEl.textContent = data.error || 'Lỗi đăng ký.';
@@ -205,7 +253,7 @@
 
       document.getElementById('step-register').classList.add('hidden');
       if (data.sessionStatus === 'LIVE') {
-        startQuiz(data.startedAt, data.serverNow, data.answerDurationSec, data.revealDurationSec);
+        startQuiz(data.startedAt, data.serverNow, data.prepareDurationSec, data.answerDurationSec, data.revealDurationSec, t0, t1);
       } else {
         enterWaitingRoom(data.registeredCount || 1);
       }
@@ -218,7 +266,9 @@
 
       waitPoll = setInterval(async () => {
         try {
+          const t0 = performance.now();
           const res = await fetch('/api/session?lite=1');
+          const t1 = performance.now();
           const s = await res.json();
           if (typeof s.registeredCount === 'number') {
             document.getElementById('wait-player-count').textContent = `${s.registeredCount} sinh viên`;
@@ -227,23 +277,28 @@
             clearInterval(waitPoll);
             waitPoll = null;
             document.getElementById('step-waiting').classList.add('hidden');
-            startQuiz(s.startedAt, s.serverNow, s.answerDurationSec, s.revealDurationSec);
+            startQuiz(s.startedAt, s.serverNow, s.prepareDurationSec, s.answerDurationSec, s.revealDurationSec, t0, t1);
           }
         } catch (e) {}
-      }, 1000);
+      }, 500);
     }
 
-    function startQuiz(startedAt, serverNow, answerSec, revealSec) {
+    function startQuiz(startedAt, serverNow, prepSec, answerSec, revealSec, t0, t1) {
       if (rankPoll) {
         clearInterval(rankPoll);
         rankPoll = null;
       }
       stopQuizLoop();
 
+      prepareDurationSec = Number(prepSec) || 3;
       answerDurationSec = Number(answerSec) || 20;
       revealDurationSec = Number(revealSec) || 5;
-      const elapsedOnJoinMs = startedAt ? Math.max(0, (serverNow || Date.now()) - startedAt) : 0;
-      localStartTs = performance.now() - elapsedOnJoinMs;
+      if (startedAt && serverNow && typeof t0 === 'number' && typeof t1 === 'number') {
+        syncPlayerLocalStartTs(startedAt, serverNow, t0, t1, true);
+      } else {
+        const elapsedOnJoinMs = startedAt ? Math.max(0, (serverNow || Date.now()) - startedAt) : 0;
+        localStartTs = performance.now() - elapsedOnJoinMs;
+      }
 
       renderedQIdx = -1;
       selectedOption = -1;
@@ -257,6 +312,7 @@
 
       tickQuiz();
       quizLoop = setInterval(tickQuiz, 80);
+      playerClockSyncPoll = setInterval(pollPlayerClockSync, 3000);
     }
 
     function renderQuestion(qIdx) {
@@ -294,8 +350,33 @@
       if (hasSubmitted || !questions.length || localStartTs === null) return;
 
       const cycleSec = answerDurationSec + revealDurationSec;
-      const elapsedSec = Math.max(0, (performance.now() - localStartTs) / 1000);
+      const elapsedSec = (performance.now() - localStartTs) / 1000;
       const totalDuration = questions.length * cycleSec;
+
+      const phaseEl = document.getElementById('q-phase');
+      const timerEl = document.getElementById('q-timer');
+      const barEl = document.getElementById('q-bar');
+      const prepBox = document.getElementById('q-prepare-box');
+      const qCard = document.getElementById('q-question-card');
+
+      if (elapsedSec < 0) {
+        const remPrep = Math.max(0, -elapsedSec);
+        prepBox.classList.remove('hidden');
+        qCard.classList.add('hidden');
+        document.getElementById('q-counter').textContent = `CÂU 1 / ${questions.length}`;
+        document.getElementById('q-section').textContent = 'Đang đồng bộ đồng hồ với màn hình chính...';
+        document.getElementById('q-prepare-count').textContent = String(Math.max(1, Math.ceil(remPrep)));
+        phaseEl.textContent = 'Chuẩn bị';
+        phaseEl.className = 'px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-orange-50 text-[#EF8823]';
+        timerEl.textContent = `${remPrep.toFixed(1)}s`;
+        timerEl.className = 'px-3 py-1.5 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-base text-[#EF8823] shrink-0';
+        barEl.className = 'h-full bg-[#EF8823] transition-all duration-100';
+        barEl.style.width = `${Math.min(100, (remPrep / Math.max(0.1, prepareDurationSec)) * 100)}%`;
+        return;
+      }
+
+      prepBox.classList.add('hidden');
+      qCard.classList.remove('hidden');
 
       if (elapsedSec >= totalDuration) {
         submitQuiz();
@@ -308,10 +389,6 @@
       if (qIdx !== renderedQIdx) {
         renderQuestion(qIdx);
       }
-
-      const phaseEl = document.getElementById('q-phase');
-      const timerEl = document.getElementById('q-timer');
-      const barEl = document.getElementById('q-bar');
 
       if (inQ < answerDurationSec) {
         const rem = Math.max(0, answerDurationSec - inQ);
@@ -357,7 +434,8 @@
     async function pickAnswer(qIdx, sel) {
       if (selectedOption !== -1 || qIdx !== renderedQIdx || hasSubmitted) return;
       const cycleSec = answerDurationSec + revealDurationSec;
-      const elapsedSec = Math.max(0, (performance.now() - localStartTs) / 1000);
+      const elapsedSec = (performance.now() - localStartTs) / 1000;
+      if (elapsedSec < 0) return;
       const inQ = elapsedSec - qIdx * cycleSec;
       if (inQ >= answerDurationSec) return;
 
@@ -407,12 +485,12 @@
     async function fetchAndShowReveal(qIdx, attempt = 0) {
       try {
         const res = await fetch(`/api/reveal/${qIdx}?mssv=${encodeURIComponent(player.mssv)}`);
-        if (res.status === 403 && attempt < 4) {
+        if (res.status === 403 && attempt < 6) {
           setTimeout(() => {
             if (renderedQIdx === qIdx && !hasSubmitted) {
               fetchAndShowReveal(qIdx, attempt + 1);
             }
-          }, 250);
+          }, 200);
           return;
         }
         if (!res.ok || renderedQIdx !== qIdx || hasSubmitted) return;

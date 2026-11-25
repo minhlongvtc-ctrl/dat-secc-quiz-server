@@ -7,6 +7,9 @@ const path = require('path');
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
+const PREPARE_DURATION_SEC = process.env.PREPARE_DURATION_SEC !== undefined
+  ? Number(process.env.PREPARE_DURATION_SEC)
+  : 3;
 const ANSWER_DURATION_SEC = Number(process.env.ANSWER_DURATION_SEC) || 20;
 const REVEAL_DURATION_SEC = Number(process.env.REVEAL_DURATION_SEC) || 5;
 const QUESTION_CYCLE_SEC = ANSWER_DURATION_SEC + REVEAL_DURATION_SEC;
@@ -302,6 +305,7 @@ function getQuizClock(now = Date.now()) {
       questionIndex: -1,
       phaseRemainingSec: 0,
       elapsedSec: 0,
+      prepareDurationSec: PREPARE_DURATION_SEC,
       answerDurationSec: ANSWER_DURATION_SEC,
       revealDurationSec: REVEAL_DURATION_SEC,
       totalQuestions: QUIZ_QUESTIONS.length
@@ -313,6 +317,20 @@ function getQuizClock(now = Date.now()) {
       questionIndex: QUIZ_QUESTIONS.length - 1,
       phaseRemainingSec: 0,
       elapsedSec: QUIZ_QUESTIONS.length * QUESTION_CYCLE_SEC,
+      prepareDurationSec: PREPARE_DURATION_SEC,
+      answerDurationSec: ANSWER_DURATION_SEC,
+      revealDurationSec: REVEAL_DURATION_SEC,
+      totalQuestions: QUIZ_QUESTIONS.length
+    };
+  }
+  if (now < session.startedAt) {
+    const remPrep = (session.startedAt - now) / 1000;
+    return {
+      phase: 'PREPARE',
+      questionIndex: -1,
+      phaseRemainingSec: Number(remPrep.toFixed(1)),
+      elapsedSec: (now - session.startedAt) / 1000,
+      prepareDurationSec: PREPARE_DURATION_SEC,
       answerDurationSec: ANSWER_DURATION_SEC,
       revealDurationSec: REVEAL_DURATION_SEC,
       totalQuestions: QUIZ_QUESTIONS.length
@@ -326,6 +344,7 @@ function getQuizClock(now = Date.now()) {
       questionIndex: QUIZ_QUESTIONS.length - 1,
       phaseRemainingSec: 0,
       elapsedSec,
+      prepareDurationSec: PREPARE_DURATION_SEC,
       answerDurationSec: ANSWER_DURATION_SEC,
       revealDurationSec: REVEAL_DURATION_SEC,
       totalQuestions: QUIZ_QUESTIONS.length
@@ -339,6 +358,7 @@ function getQuizClock(now = Date.now()) {
       questionIndex: qIdx,
       phaseRemainingSec: Number((ANSWER_DURATION_SEC - inQ).toFixed(1)),
       elapsedSec,
+      prepareDurationSec: PREPARE_DURATION_SEC,
       answerDurationSec: ANSWER_DURATION_SEC,
       revealDurationSec: REVEAL_DURATION_SEC,
       totalQuestions: QUIZ_QUESTIONS.length
@@ -349,6 +369,7 @@ function getQuizClock(now = Date.now()) {
     questionIndex: qIdx,
     phaseRemainingSec: Number((QUESTION_CYCLE_SEC - inQ).toFixed(1)),
     elapsedSec,
+    prepareDurationSec: PREPARE_DURATION_SEC,
     answerDurationSec: ANSWER_DURATION_SEC,
     revealDurationSec: REVEAL_DURATION_SEC,
     totalQuestions: QUIZ_QUESTIONS.length
@@ -463,6 +484,20 @@ app.get('/healthz', (req, res) => {
   res.json({ ok: true, status: session.status });
 });
 
+// Đồng hồ nhẹ phục vụ đồng bộ chính xác Host <-> Sinh viên
+app.get('/api/clock', (req, res) => {
+  const now = Date.now();
+  res.json({
+    status: session.status,
+    startedAt: session.startedAt,
+    serverNow: now,
+    prepareDurationSec: PREPARE_DURATION_SEC,
+    answerDurationSec: ANSWER_DURATION_SEC,
+    revealDurationSec: REVEAL_DURATION_SEC,
+    clock: getQuizClock(now)
+  });
+});
+
 // Lấy thông tin phiên + QR Code DataURL + đồng hồ đồng bộ
 app.get('/api/session', async (req, res) => {
   checkAutoFinalize();
@@ -476,6 +511,7 @@ app.get('/api/session', async (req, res) => {
       finalized: session.status === 'FINISHED',
       serverNow: now,
       startedAt: session.startedAt,
+      prepareDurationSec: PREPARE_DURATION_SEC,
       answerDurationSec: ANSWER_DURATION_SEC,
       revealDurationSec: REVEAL_DURATION_SEC,
       clock,
@@ -503,6 +539,7 @@ app.get('/api/session', async (req, res) => {
       serverNow: now,
       startedAt: session.startedAt,
       finishedAt: session.finishedAt,
+      prepareDurationSec: PREPARE_DURATION_SEC,
       answerDurationSec: ANSWER_DURATION_SEC,
       revealDurationSec: REVEAL_DURATION_SEC,
       clock,
@@ -528,13 +565,14 @@ app.post('/api/session/url', (req, res) => {
 function handleStartChallenge(req, res) {
   const now = Date.now();
   session.status = 'LIVE';
-  session.startedAt = now;
+  session.startedAt = now + PREPARE_DURATION_SEC * 1000;
   session.finishedAt = null;
   res.json({
     ok: true,
     status: session.status,
     startedAt: session.startedAt,
     serverNow: now,
+    prepareDurationSec: PREPARE_DURATION_SEC,
     answerDurationSec: ANSWER_DURATION_SEC,
     revealDurationSec: REVEAL_DURATION_SEC
   });
@@ -635,6 +673,7 @@ app.post('/api/register', (req, res) => {
     sessionStatus: session.status,
     startedAt: session.startedAt,
     serverNow: Date.now(),
+    prepareDurationSec: PREPARE_DURATION_SEC,
     answerDurationSec: ANSWER_DURATION_SEC,
     revealDurationSec: REVEAL_DURATION_SEC,
     registeredCount: registeredPlayers.length
@@ -661,6 +700,9 @@ app.post('/api/answer', (req, res) => {
   }
 
   const clock = getQuizClock(Date.now());
+  if (clock.phase === 'PREPARE') {
+    return res.status(400).json({ error: 'Chưa bắt đầu câu hỏi.' });
+  }
   const qStart = qIdx * QUESTION_CYCLE_SEC;
   const qAnswerEnd = qStart + ANSWER_DURATION_SEC;
   if (clock.elapsedSec < qStart - 0.5 || clock.elapsedSec > qAnswerEnd + 1.0) {

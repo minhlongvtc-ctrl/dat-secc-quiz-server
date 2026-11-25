@@ -248,12 +248,12 @@
         <div>
           <div class="flex items-center gap-2.5">
             <span id="host-q-counter" class="text-sm font-extrabold text-[#1C79C0]">CÂU 1 / 10</span>
-            <span id="host-q-phase" class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-50 text-[#1C79C0]">ĐANG TRẢ LỜI</span>
+            <span id="host-q-phase" class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-50 text-[#1C79C0]">CHUẨN BỊ</span>
           </div>
           <div id="host-q-section" class="text-xs sm:text-sm text-slate-500 mt-0.5"></div>
         </div>
         <div class="px-4 py-2 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-2xl text-[#EF8823] shrink-0" id="host-q-timer">
-          20.0s
+          3.0s
         </div>
       </div>
 
@@ -261,8 +261,18 @@
         <div id="host-q-bar" class="h-full bg-[#EF8823] transition-all duration-100" style="width: 100%;"></div>
       </div>
 
+      <!-- Synchronized 3-2-1 Prepare Lead-in Box -->
+      <div id="host-prepare-box" class="bg-white text-[#0E2841] rounded-2xl p-10 sm:p-14 shadow-xl text-center space-y-4">
+        <div class="inline-block px-4 py-1.5 rounded-full bg-orange-50 border border-orange-200 text-[#EF8823] text-sm font-black">
+          ĐỒNG BỘ TOÀN BỘ THIẾT BỊ
+        </div>
+        <h2 class="text-2xl sm:text-4xl font-black text-[#0E2841]">SẴN SÀNG! BẮT ĐẦU CÂU 1 SAU</h2>
+        <div id="host-prepare-count" class="text-7xl sm:text-8xl font-mono font-black text-[#EF8823]">3</div>
+        <p class="text-sm text-slate-500">Tất cả màn hình sinh viên sẽ bắt đầu đếm 20.0s cùng lúc với màn hình Host.</p>
+      </div>
+
       <!-- Display-only Question Card (No early answer leak on projector) -->
-      <div class="bg-white text-[#0E2841] rounded-2xl p-6 sm:p-8 shadow-xl space-y-5">
+      <div id="host-question-card" class="hidden bg-white text-[#0E2841] rounded-2xl p-6 sm:p-8 shadow-xl space-y-5">
         <h2 id="host-q-text" class="text-xl sm:text-2xl lg:text-[26px] font-extrabold text-[#0E2841] leading-snug"></h2>
         <div id="host-q-options" class="space-y-3"></div>
         <div id="host-q-feedback" class="hidden rounded-xl p-5 border border-emerald-200 bg-emerald-50 text-sm sm:text-base space-y-2">
@@ -306,10 +316,12 @@
 
     // Synchronized Host live stage state
     let hostQuestions = [];
+    let hostPrepareDurationSec = 3;
     let hostAnswerDurationSec = 20;
     let hostRevealDurationSec = 5;
     let hostLocalStartTs = null;
     let hostLiveLoop = null;
+    let hostClockSyncPoll = null;
     let hostRenderedQIdx = -1;
     let hostRevealRequestedForQ = false;
     let liveScorePoll = null;
@@ -324,6 +336,43 @@
       const d = new Date(iso);
       if (Number.isNaN(d.getTime())) return '--:--:--';
       return d.toLocaleTimeString('vi-VN', { hour12: false });
+    }
+
+    async function preloadHostQuestions() {
+      if (hostQuestions.length > 0) return;
+      try {
+        const res = await fetch('/api/questions');
+        if (res.ok) hostQuestions = await res.json();
+      } catch (e) {}
+    }
+
+    function syncHostLocalStartTs(startedAt, serverNow, t0, t1, force = false) {
+      if (!startedAt || !serverNow) return;
+      const oneWay = (t1 - t0) / 2;
+      const candidate = (t1 - oneWay) - (serverNow - startedAt);
+      if (force || hostLocalStartTs === null || Math.abs(candidate - hostLocalStartTs) > 120) {
+        hostLocalStartTs = candidate;
+      }
+    }
+
+    async function pollHostClockSync() {
+      try {
+        const t0 = performance.now();
+        const res = await fetch('/api/clock');
+        const t1 = performance.now();
+        if (!res.ok) return;
+        const c = await res.json();
+        if (c.status === 'FINISHED') {
+          finishHostChallenge();
+          return;
+        }
+        if (c.status === 'LIVE' && c.startedAt) {
+          hostPrepareDurationSec = Number(c.prepareDurationSec) || hostPrepareDurationSec;
+          hostAnswerDurationSec = Number(c.answerDurationSec) || hostAnswerDurationSec;
+          hostRevealDurationSec = Number(c.revealDurationSec) || hostRevealDurationSec;
+          syncHostLocalStartTs(c.startedAt, c.serverNow, t0, t1, false);
+        }
+      } catch (e) {}
     }
 
     function getCrownSvg(tier) {
@@ -684,18 +733,20 @@
         clearInterval(hostLiveLoop);
         hostLiveLoop = null;
       }
+      if (hostClockSyncPoll) {
+        clearInterval(hostClockSyncPoll);
+        hostClockSyncPoll = null;
+      }
     }
 
-    async function startHostLiveView(startedAt, serverNow, answerSec, revealSec) {
-      if (hostQuestions.length === 0) {
-        const res = await fetch('/api/questions');
-        hostQuestions = await res.json();
-      }
+    async function startHostLiveView(timing, t0, t1) {
+      await preloadHostQuestions();
       stopHostLiveLoop();
-      hostAnswerDurationSec = Number(answerSec) || 20;
-      hostRevealDurationSec = Number(revealSec) || 5;
-      const elapsedOnOpenMs = startedAt ? Math.max(0, (serverNow || Date.now()) - startedAt) : 0;
-      hostLocalStartTs = performance.now() - elapsedOnOpenMs;
+
+      hostPrepareDurationSec = Number(timing.prepareDurationSec) || 3;
+      hostAnswerDurationSec = Number(timing.answerDurationSec) || 20;
+      hostRevealDurationSec = Number(timing.revealDurationSec) || 5;
+      syncHostLocalStartTs(timing.startedAt, timing.serverNow, t0, t1, true);
       hostRenderedQIdx = -1;
       hostRevealRequestedForQ = false;
 
@@ -709,6 +760,7 @@
 
       tickHostLiveStage();
       hostLiveLoop = setInterval(tickHostLiveStage, 80);
+      hostClockSyncPoll = setInterval(pollHostClockSync, 3000);
     }
 
     function renderHostQuestion(qIdx) {
@@ -741,8 +793,33 @@
       if (!hostQuestions.length || hostLocalStartTs === null) return;
 
       const cycleSec = hostAnswerDurationSec + hostRevealDurationSec;
-      const elapsedSec = Math.max(0, (performance.now() - hostLocalStartTs) / 1000);
+      const elapsedSec = (performance.now() - hostLocalStartTs) / 1000;
       const totalDuration = hostQuestions.length * cycleSec;
+
+      const phaseEl = document.getElementById('host-q-phase');
+      const timerEl = document.getElementById('host-q-timer');
+      const barEl = document.getElementById('host-q-bar');
+      const prepBox = document.getElementById('host-prepare-box');
+      const qCard = document.getElementById('host-question-card');
+
+      if (elapsedSec < 0) {
+        const remPrep = Math.max(0, -elapsedSec);
+        prepBox.classList.remove('hidden');
+        qCard.classList.add('hidden');
+        document.getElementById('host-q-counter').textContent = `CÂU 1 / ${hostQuestions.length}`;
+        document.getElementById('host-q-section').textContent = 'Đang đồng bộ đồng hồ với tất cả thí sinh...';
+        document.getElementById('host-prepare-count').textContent = String(Math.max(1, Math.ceil(remPrep)));
+        phaseEl.textContent = 'CHUẨN BỊ';
+        phaseEl.className = 'px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-orange-50 text-[#EF8823]';
+        timerEl.textContent = `${remPrep.toFixed(1)}s`;
+        timerEl.className = 'px-4 py-2 rounded-xl bg-orange-50 border border-orange-200 font-mono font-black text-2xl text-[#EF8823] shrink-0';
+        barEl.className = 'h-full bg-[#EF8823] transition-all duration-100';
+        barEl.style.width = `${Math.min(100, (remPrep / Math.max(0.1, hostPrepareDurationSec)) * 100)}%`;
+        return;
+      }
+
+      prepBox.classList.add('hidden');
+      qCard.classList.remove('hidden');
 
       if (elapsedSec >= totalDuration) {
         finishHostChallenge();
@@ -755,10 +832,6 @@
       if (qIdx !== hostRenderedQIdx) {
         renderHostQuestion(qIdx);
       }
-
-      const phaseEl = document.getElementById('host-q-phase');
-      const timerEl = document.getElementById('host-q-timer');
-      const barEl = document.getElementById('host-q-bar');
 
       if (inQ < hostAnswerDurationSec) {
         const rem = Math.max(0, hostAnswerDurationSec - inQ);
@@ -792,12 +865,12 @@
     async function fetchAndShowHostReveal(qIdx, attempt = 0) {
       try {
         const res = await fetch(`/api/reveal/${qIdx}`);
-        if (res.status === 403 && attempt < 4) {
+        if (res.status === 403 && attempt < 6) {
           setTimeout(() => {
             if (hostRenderedQIdx === qIdx) {
               fetchAndShowHostReveal(qIdx, attempt + 1);
             }
-          }, 250);
+          }, 200);
           return;
         }
         if (!res.ok || hostRenderedQIdx !== qIdx) return;
@@ -843,19 +916,27 @@
     async function startChallenge() {
       if (currentSessionStatus === 'FINISHED') return;
       let timing = null;
+      let t0 = 0;
+      let t1 = 0;
       if (currentSessionStatus !== 'LIVE') {
         if (currentRegisteredCount === 0) {
           const ok = confirm('Chưa có sinh viên nào vào phòng chờ. Bạn vẫn muốn bắt đầu thử thách ngay?');
           if (!ok) return;
         }
+        await preloadHostQuestions();
+        t0 = performance.now();
         const res = await fetch('/api/session/start-challenge', { method: 'POST' });
+        t1 = performance.now();
         timing = await res.json();
-        await fetchSession();
+        fetchSession();
       } else {
-        const res = await fetch('/api/session?lite=1');
+        await preloadHostQuestions();
+        t0 = performance.now();
+        const res = await fetch('/api/clock');
+        t1 = performance.now();
         timing = await res.json();
       }
-      await startHostLiveView(timing.startedAt, timing.serverNow, timing.answerDurationSec, timing.revealDurationSec);
+      await startHostLiveView(timing, t0, t1);
     }
 
     document.getElementById('btn-start-challenge').addEventListener('click', startChallenge);
@@ -914,6 +995,7 @@
       fetchLeaderboard();
     });
 
+    preloadHostQuestions();
     fetchSession();
     fetchLeaderboard();
     setInterval(fetchSession, 1000);

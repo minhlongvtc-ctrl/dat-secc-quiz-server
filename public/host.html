@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HOST — DAT Group Smart Factory Quiz (SECC 25/11/2026)</title>
+  <title>HOST — DAT Group Smart Factory Quiz — Khoa Kỹ thuật Điện tử 2, Học viện Công nghệ Bưu chính Viễn thông cơ sở TP.HCM (PTIT HCM)</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <style>
     body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0E2841; color: #FFFFFF; }
@@ -21,24 +21,18 @@
   <!-- Header -->
   <header class="border-b border-white/15 bg-[#091C2E]/90 px-6 py-4 flex flex-wrap items-center justify-between gap-4">
     <div class="flex items-center gap-3">
-      <div class="w-11 h-11 rounded-xl bg-[#1C79C0] font-black flex items-center justify-center text-sm shadow">
+      <div class="w-11 h-11 rounded-xl bg-[#1C79C0] font-black flex items-center justify-center text-sm shadow shrink-0">
         DAT<span class="text-[#EF8823]">20</span>
       </div>
       <div>
         <h1 class="text-lg sm:text-xl font-black tracking-tight">MÀN HÌNH ĐIỀU KHIỂN — SMART FACTORY QUIZ</h1>
-        <p class="text-xs text-blue-200">Hội thảo Tự động hóa Thông minh • SECC 25/11/2026</p>
+        <p class="text-xs text-blue-200">Khoa Kỹ thuật Điện tử 2, Học viện Công nghệ Bưu chính Viễn thông cơ sở TP.HCM (PTIT HCM)</p>
       </div>
     </div>
 
     <div class="flex flex-wrap items-center gap-2">
-      <button id="btn-start-qr" class="px-4 py-2 rounded-xl bg-[#EF8823] hover:bg-orange-600 font-extrabold text-sm shadow cursor-pointer">
-        Mở QR đếm ngược 30s
-      </button>
-      <button id="btn-extend-qr" class="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 font-bold text-xs border border-white/20 cursor-pointer">
-        +15 giây
-      </button>
-      <button id="btn-start-now" class="px-3.5 py-2 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-bold text-xs cursor-pointer">
-        Bắt đầu Quiz ngay
+      <button id="btn-start-challenge" class="px-4 py-2 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-extrabold text-sm shadow cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed">
+        Bắt đầu thử thách
       </button>
       <a href="/api/export-csv" class="px-3.5 py-2 rounded-xl bg-[#1C79C0] hover:bg-blue-600 font-bold text-xs">
         Xuất CSV (Excel)
@@ -52,32 +46,37 @@
   <!-- Main Grid -->
   <main class="flex-1 max-w-7xl w-full mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-    <!-- Left: QR Code + 30s Countdown -->
-    <section class="lg:col-span-5 card-glass rounded-2xl p-6 flex flex-col items-center text-center justify-between gap-5">
+    <!-- Left: Waiting Room + QR Code -->
+    <section class="lg:col-span-5 card-glass rounded-2xl p-6 flex flex-col items-center text-center justify-between gap-4">
       <div class="w-full space-y-1">
-        <div id="status-badge" class="inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-white/15 text-blue-200">
-          CHỜ MỞ PHIÊN QUÉT QR
+        <div id="status-badge" class="inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-[#EF8823] text-white">
+          PHÒNG CHỜ ĐANG MỞ — CHỜ ĐỦ SINH VIÊN
         </div>
-        <h2 class="text-2xl font-black mt-2">QUÉT MÃ QR ĐỂ THAM GIA</h2>
-        <p class="text-xs text-blue-200">Sinh viên quét mã, nhập <strong>Họ tên &amp; MSSV</strong> để vào phòng thi</p>
+        <h2 class="text-2xl font-black mt-2">QUÉT MÃ QR VÀO PHÒNG CHỜ</h2>
+        <p class="text-xs text-blue-200">Sinh viên quét mã, nhập <strong>Họ tên &amp; MSSV</strong> để vào phòng chờ. Khi đủ sinh viên, bấm <strong>"Bắt đầu thử thách"</strong>.</p>
       </div>
 
-      <!-- Countdown Circle / Banner -->
+      <!-- Waiting Room Stats Banner -->
       <div class="w-full bg-[#091C2E] rounded-2xl p-4 border border-white/15 flex items-center justify-around">
         <div>
-          <div class="text-[11px] uppercase tracking-wider text-blue-300 font-bold">Thời gian quét QR</div>
-          <div id="qr-countdown" class="text-4xl font-mono font-black text-[#EF8823] mt-0.5">30.0s</div>
+          <div class="text-[11px] uppercase tracking-wider text-blue-300 font-bold">Đã vào phòng chờ</div>
+          <div id="registered-count" class="text-4xl font-black text-emerald-400 mt-0.5">0</div>
         </div>
         <div class="h-10 w-px bg-white/15"></div>
         <div>
-          <div class="text-[11px] uppercase tracking-wider text-blue-300 font-bold">Đã vào phòng</div>
-          <div id="registered-count" class="text-4xl font-black text-emerald-400 mt-0.5">0</div>
+          <div class="text-[11px] uppercase tracking-wider text-blue-300 font-bold">Trạng thái phiên</div>
+          <div id="session-state-text" class="text-2xl font-black text-[#EF8823] mt-1">Đang chờ</div>
         </div>
       </div>
 
+      <!-- Primary Start Challenge Button -->
+      <button id="btn-start-challenge-main" class="w-full py-3.5 rounded-xl bg-[#00B050] hover:bg-emerald-600 font-black text-base tracking-wide shadow-lg cursor-pointer transition disabled:opacity-60 disabled:cursor-not-allowed">
+        BẮT ĐẦU THỬ THÁCH
+      </button>
+
       <!-- QR Image Box -->
-      <div id="qr-wrapper" class="bg-white p-4 rounded-2xl shadow-2xl">
-        <img id="qr-img" src="" alt="QR Tham gia Quiz" class="w-64 h-64 sm:w-72 sm:h-72 object-contain" />
+      <div id="qr-wrapper" class="bg-white p-4 rounded-2xl shadow-2xl pulse-ring">
+        <img id="qr-img" src="" alt="QR Tham gia Quiz" class="w-56 h-56 sm:w-64 sm:h-64 object-contain" />
       </div>
 
       <!-- Public / Tunnel URL Config -->
@@ -96,9 +95,9 @@
 
       <!-- Recent Joined Pills -->
       <div class="w-full text-left">
-        <div class="text-xs font-bold text-blue-200 mb-2">Sinh viên vừa quét mã:</div>
-        <div id="joined-pills" class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-          <span class="text-xs text-blue-300/60 italic">Chưa có sinh viên nào đăng ký...</span>
+        <div class="text-xs font-bold text-blue-200 mb-2">Sinh viên đang trong phòng chờ:</div>
+        <div id="joined-pills" class="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+          <span class="text-xs text-blue-300/60 italic">Chưa có sinh viên nào vào phòng chờ...</span>
         </div>
       </div>
     </section>
@@ -141,6 +140,7 @@
 
   <script>
     let urlInitialized = false;
+    let currentRegisteredCount = 0;
 
     function escapeHtml(s) {
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -165,33 +165,41 @@
           urlInitialized = true;
         }
 
-        document.getElementById('registered-count').textContent = data.registeredCount;
+        currentRegisteredCount = data.registeredCount || 0;
+        document.getElementById('registered-count').textContent = currentRegisteredCount;
         document.getElementById('completed-count').textContent = data.completedCount;
 
         const badge = document.getElementById('status-badge');
-        const countdownEl = document.getElementById('qr-countdown');
+        const stateText = document.getElementById('session-state-text');
         const qrWrap = document.getElementById('qr-wrapper');
+        const btnHeader = document.getElementById('btn-start-challenge');
+        const btnMain = document.getElementById('btn-start-challenge-main');
 
-        if (data.status === 'QR_OPEN') {
-          badge.textContent = 'ĐANG MỞ QUÉT QR (ĐẾM NGƯỢC 30S)';
-          badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-[#EF8823] text-white';
-          countdownEl.textContent = `${data.remainingSec.toFixed(1)}s`;
-          qrWrap.classList.add('pulse-ring');
-        } else if (data.status === 'LIVE') {
-          badge.textContent = 'ĐANG DIỄN RA QUIZ — SINH VIÊN ĐANG TRẢ LỜI';
+        if (data.status === 'LIVE') {
+          badge.textContent = 'ĐANG DIỄN RA THỬ THÁCH — SINH VIÊN ĐANG LÀM BÀI';
           badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-[#00B050] text-white';
-          countdownEl.textContent = '0.0s';
+          stateText.textContent = 'Đang thi';
+          stateText.className = 'text-2xl font-black text-emerald-400 mt-1';
           qrWrap.classList.remove('pulse-ring');
+          btnHeader.disabled = true;
+          btnHeader.textContent = 'Đang diễn ra thử thách';
+          btnMain.disabled = true;
+          btnMain.textContent = 'ĐANG DIỄN RA THỬ THÁCH...';
         } else {
-          badge.textContent = 'CHỜ MỞ PHIÊN QUÉT QR';
-          badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-white/15 text-blue-200';
-          countdownEl.textContent = '30.0s';
-          qrWrap.classList.remove('pulse-ring');
+          badge.textContent = 'PHÒNG CHỜ ĐANG MỞ — CHỜ ĐỦ SINH VIÊN';
+          badge.className = 'inline-block px-3 py-1 rounded-full text-xs font-extrabold bg-[#EF8823] text-white';
+          stateText.textContent = 'Đang chờ';
+          stateText.className = 'text-2xl font-black text-[#EF8823] mt-1';
+          qrWrap.classList.add('pulse-ring');
+          btnHeader.disabled = false;
+          btnHeader.textContent = 'Bắt đầu thử thách';
+          btnMain.disabled = false;
+          btnMain.textContent = 'BẮT ĐẦU THỬ THÁCH';
         }
 
         const pills = document.getElementById('joined-pills');
         if (data.registeredPlayers.length === 0) {
-          pills.innerHTML = '<span class="text-xs text-blue-300/60 italic">Chưa có sinh viên nào đăng ký...</span>';
+          pills.innerHTML = '<span class="text-xs text-blue-300/60 italic">Chưa có sinh viên nào vào phòng chờ...</span>';
         } else {
           pills.innerHTML = data.registeredPlayers.map(p =>
             `<span class="px-2.5 py-1 rounded-lg bg-[#1C79C0]/60 border border-white/15 text-xs font-semibold">${escapeHtml(p.name)} (${escapeHtml(p.mssv)})</span>`
@@ -245,28 +253,17 @@
       } catch (e) {}
     }
 
-    document.getElementById('btn-start-qr').addEventListener('click', async () => {
-      await fetch('/api/session/start-qr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ durationSec: 30 })
-      });
+    async function startChallenge() {
+      if (currentRegisteredCount === 0) {
+        const ok = confirm('Chưa có sinh viên nào vào phòng chờ. Bạn vẫn muốn bắt đầu thử thách ngay?');
+        if (!ok) return;
+      }
+      await fetch('/api/session/start-challenge', { method: 'POST' });
       fetchSession();
-    });
+    }
 
-    document.getElementById('btn-extend-qr').addEventListener('click', async () => {
-      await fetch('/api/session/extend-qr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ addSec: 15 })
-      });
-      fetchSession();
-    });
-
-    document.getElementById('btn-start-now').addEventListener('click', async () => {
-      await fetch('/api/session/start-now', { method: 'POST' });
-      fetchSession();
-    });
+    document.getElementById('btn-start-challenge').addEventListener('click', startChallenge);
+    document.getElementById('btn-start-challenge-main').addEventListener('click', startChallenge);
 
     document.getElementById('btn-save-url').addEventListener('click', async () => {
       const customBaseUrl = document.getElementById('input-custom-url').value.trim();
@@ -279,7 +276,7 @@
     });
 
     document.getElementById('btn-reset').addEventListener('click', async () => {
-      if (!confirm('Xóa toàn bộ danh sách sinh viên và bảng xếp hạng của phiên này?')) return;
+      if (!confirm('Xóa toàn bộ danh sách sinh viên và bảng xếp hạng của phiên này để mở phòng chờ mới?')) return;
       await fetch('/api/reset', { method: 'POST' });
       fetchSession();
       fetchLeaderboard();
@@ -287,7 +284,7 @@
 
     fetchSession();
     fetchLeaderboard();
-    setInterval(fetchSession, 500);
+    setInterval(fetchSession, 1000);
     setInterval(fetchLeaderboard, 2000);
   </script>
 </body>

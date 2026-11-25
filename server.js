@@ -36,7 +36,7 @@ function saveResults(list) {
   }
 }
 
-// ==================== 10 QUIZ QUESTIONS (DAT GROUP SECC 25/11/2026) ====================
+// ==================== 10 QUIZ QUESTIONS (Khoa Kỹ thuật Điện tử 2, Học viện Công nghệ Bưu chính Viễn thông cơ sở TP.HCM (PTIT HCM)) ====================
 const QUIZ_QUESTIONS = [
   {
     id: 1,
@@ -184,9 +184,9 @@ const QUIZ_QUESTIONS = [
 let results = loadResults();
 let registeredPlayers = []; // { id, name, mssv, joinedAt }
 let session = {
-  status: 'IDLE', // IDLE | QR_OPEN | LIVE | CLOSED
-  qrDurationSec: 30,
-  qrEndsAt: null,
+  sessionId: 'ses_' + Date.now(),
+  status: 'WAITING', // WAITING | LIVE
+  startedAt: null,
   customBaseUrl: ''
 };
 
@@ -268,12 +268,6 @@ function sortLeaderboard(list) {
   });
 }
 
-function syncSessionTimer() {
-  if (session.status === 'QR_OPEN' && session.qrEndsAt && Date.now() >= session.qrEndsAt) {
-    session.status = 'LIVE';
-  }
-}
-
 // ==================== ROUTES ====================
 app.get('/', (req, res) => {
   res.redirect('/host');
@@ -288,20 +282,16 @@ app.get('/play', (req, res) => {
 });
 
 app.get('/healthz', (req, res) => {
-  syncSessionTimer();
   res.json({ ok: true, status: session.status });
 });
 
 // Lấy thông tin phiên + QR Code DataURL
 app.get('/api/session', async (req, res) => {
-  syncSessionTimer();
-  const remainingMs = session.qrEndsAt ? Math.max(0, session.qrEndsAt - Date.now()) : 0;
-  const remainingSec = Number((remainingMs / 1000).toFixed(1));
-
   if (req.query.lite === '1') {
     return res.json({
+      sessionId: session.sessionId,
       status: session.status,
-      remainingSec
+      registeredCount: registeredPlayers.length
     });
   }
 
@@ -309,15 +299,15 @@ app.get('/api/session', async (req, res) => {
   try {
     const qrDataUrl = await getQrDataUrl(playUrl);
     res.json({
+      sessionId: session.sessionId,
       status: session.status,
-      qrDurationSec: session.qrDurationSec,
-      remainingSec,
+      startedAt: session.startedAt,
       playUrl,
       customBaseUrl: session.customBaseUrl,
       lanUrl: `http://${getLocalIPv4()}:${PORT}/play`,
       qrDataUrl,
       registeredCount: registeredPlayers.length,
-      registeredPlayers: registeredPlayers.slice(-20).reverse(),
+      registeredPlayers: registeredPlayers.slice(-100).reverse(),
       completedCount: results.length
     });
   } catch (err) {
@@ -331,28 +321,22 @@ app.post('/api/session/url', (req, res) => {
   res.json({ ok: true, customBaseUrl: session.customBaseUrl });
 });
 
-// Host bắt đầu đếm ngược 30s hiển thị QR Code
-app.post('/api/session/start-qr', (req, res) => {
-  const sec = Number(req.body.durationSec) || 30;
-  session.qrDurationSec = sec;
-  session.status = 'QR_OPEN';
-  session.qrEndsAt = Date.now() + sec * 1000;
-  res.json({ ok: true, status: session.status, qrEndsAt: session.qrEndsAt });
-});
-
-// Host cộng thêm thời gian QR (+15s)
-app.post('/api/session/extend-qr', (req, res) => {
-  const addSec = Number(req.body.addSec) || 15;
-  const base = session.qrEndsAt && session.qrEndsAt > Date.now() ? session.qrEndsAt : Date.now();
-  session.status = 'QR_OPEN';
-  session.qrEndsAt = base + addSec * 1000;
-  res.json({ ok: true, status: session.status, qrEndsAt: session.qrEndsAt });
-});
-
-// Host cho bắt đầu làm bài ngay lập tức (bỏ qua thời gian chờ còn lại)
-app.post('/api/session/start-now', (req, res) => {
+function handleStartChallenge(req, res) {
   session.status = 'LIVE';
-  session.qrEndsAt = Date.now();
+  if (!session.startedAt) {
+    session.startedAt = Date.now();
+  }
+  res.json({ ok: true, status: session.status, startedAt: session.startedAt });
+}
+
+// Host bấm "Bắt đầu thử thách" cho toàn bộ sinh viên trong phòng chờ cùng làm bài
+app.post('/api/session/start-challenge', handleStartChallenge);
+app.post('/api/session/start-now', handleStartChallenge);
+
+// Host mở lại phòng chờ (nếu cần)
+app.post('/api/session/open-lobby', (req, res) => {
+  session.status = 'WAITING';
+  session.startedAt = null;
   res.json({ ok: true, status: session.status });
 });
 
@@ -363,7 +347,6 @@ app.get('/api/questions', (req, res) => {
 
 // Sinh viên đăng ký sau khi quét QR
 app.post('/api/register', (req, res) => {
-  syncSessionTimer();
   const name = String(req.body.name || '').trim();
   const mssv = String(req.body.mssv || '').trim().toUpperCase();
   if (!name || !mssv) {
@@ -383,12 +366,11 @@ app.post('/api/register', (req, res) => {
     player.name = name;
   }
 
-  const remainingMs = session.qrEndsAt ? Math.max(0, session.qrEndsAt - Date.now()) : 0;
   res.json({
     ok: true,
     player,
     sessionStatus: session.status,
-    remainingSec: Number((remainingMs / 1000).toFixed(1))
+    registeredCount: registeredPlayers.length
   });
 });
 
@@ -457,7 +439,7 @@ app.get('/api/export-csv', (req, res) => {
 
   const csv = '\uFEFF' + [headers.join(','), ...rows].join('\n');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="DAT_SECC_25-11-2026_Leaderboard.csv"');
+  res.setHeader('Content-Disposition', 'attachment; filename="DAT_PTIT_HCM_KT_DienTu2_Leaderboard.csv"');
   res.send(csv);
 });
 
@@ -465,8 +447,9 @@ app.get('/api/export-csv', (req, res) => {
 app.post('/api/reset', (req, res) => {
   results = [];
   registeredPlayers = [];
-  session.status = 'IDLE';
-  session.qrEndsAt = null;
+  session.sessionId = 'ses_' + Date.now();
+  session.status = 'WAITING';
+  session.startedAt = null;
   saveResults(results);
   res.json({ ok: true });
 });
@@ -475,7 +458,8 @@ app.listen(PORT, '0.0.0.0', () => {
   const ip = getLocalIPv4();
   const publicBase = normalizeBaseUrl(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL);
   console.log('\n======================================================');
-  console.log('  DAT GROUP SMART FACTORY QUIZ SERVER (SECC 25/11/2026)');
+  console.log('  DAT GROUP SMART FACTORY QUIZ SERVER');
+  console.log('  Khoa Kỹ thuật Điện tử 2, Học viện Công nghệ Bưu chính Viễn thông cơ sở TP.HCM (PTIT HCM)');
   console.log('======================================================');
   console.log(`  Man hinh chieu (Host) : http://localhost:${PORT}/host`);
   console.log(`  Link Sinh vien (LAN)  : http://${ip}:${PORT}/play`);

@@ -1,7 +1,7 @@
 {
   "name": "dat-secc-quiz-server",
   "version": "1.0.0",
-  "description": "DAT Group Smart Factory Quiz Server cho Hội thảo SECC 25/11/2026 - Quét QR, đếm ngược 30s, chấm điểm tốc độ & bảng xếp hạng trực tuyến",
+  "description": "DAT Group Smart Factory Quiz Server cho Khoa Kỹ thuật Điện tử 2, Học viện Công nghệ Bưu chính Viễn thông cơ sở TP.HCM (PTIT HCM) - Quét QR, phòng chờ đồng bộ, chấm điểm tốc độ & bảng xếp hạng trực tuyến",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
